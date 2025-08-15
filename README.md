@@ -93,11 +93,11 @@ pm2 stop index.js
 2. Login akun Telegram:
    - Masukkan nomor dengan format `+628xxx`.
    - Masukkan kode OTP dan password 2FA (jika ada).
-3. Atur pesan broadcast.
+3. Atur pesan jaseb.
 4. Pilih target:
    - Mode otomatis (semua group/channel).
    - Mode manual (tambahkan target satu per satu).
-5. Start untuk memulai broadcast.
+5. Start untuk memulai jaseb.
 6. Gunakan menu Stop untuk menghentikan.
 
 ## Catatan
