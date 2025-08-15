@@ -41,10 +41,10 @@ module.exports = (bot) => {
 
   bot.callbackQuery('CANCEL', async ctx => {
     const a = getAcc(ctx.from.id)
-    if (a) a.cancel()
+    if (a) a.cancel(ctx.api)
     
     if (ctx.session?.mid) {
-      try { await bot.api.deleteMessage(ctx.from.id, ctx.session.mid) } catch {}
+      try { await ctx.api.deleteMessage(ctx.from.id, ctx.session.mid) } catch {}
     }
     ctx.session = null
     
