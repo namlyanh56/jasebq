@@ -15,7 +15,7 @@ const mainMenu = uid => {
   }
 
   return {
-    text: `🚀 JASEB\n\n${status}\nAkun: ${a.name}\nPesan: ${a.msgs.length}\nTarget: ${a.all ? 'Auto' : a.targets.size}`,
+    text: `JASEB\n\n${status}\nAkun: ${a.name}\nPesan: ${a.msgs.length}\nTarget: ${a.all ? 'Auto' : a.targets.size}`,
     reply_markup: new InlineKeyboard()
       .text('▶️ Start', 'START').text('⏹️ Stop', 'STOP').row()
       .text('📝 Pesan', 'MSG').text('🎯 Target', 'TGT').row()
@@ -41,5 +41,6 @@ const helpCommand = async ctx => {
   await ctx.editMessageText(text, { reply_markup: new InlineKeyboard().text('🔙 Menu', 'MAIN') })
   await ctx.answerCallbackQuery()
 }
+
 
 module.exports = { mainMenu, startCommand, mainCommand, helpCommand }
