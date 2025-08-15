@@ -1,12 +1,11 @@
 const { getUser, getAcc } = require('../utils/helper')
 const { mainMenu } = require('../utils/menu')
-const Akun = require('../model/Akun')
 
 module.exports = async (ctx) => {
   const text = ctx.message.text.trim()
   const a = getAcc(ctx.from.id)
   
-  if (a?.handleText(text)) return
+  if (a?.handleText(text, ctx.api)) return
   
   if (ctx.session?.mid) {
     try { await ctx.api.deleteMessage(ctx.from.id, ctx.session.mid) } catch {}
