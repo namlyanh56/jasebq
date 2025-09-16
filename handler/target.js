@@ -1,128 +1,106 @@
-const { InlineKeyboard } = require('grammy')
-const { getAcc } = require('../utils/helper')
+const { InlineKeyboard } = require('grammy');
+const { getAcc } = require('../utils/helper');
+const { targetMenu } = require('../utils/menu');
+
+const createTargetDeleteList = (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a || !a.targets.size) {
+        return { text: 'ℹ️ Daftar target manual Anda kosong.', reply_markup: new InlineKeyboard().text('Tutup', 'delete_this') };
+    }
+    let text = "Pilih target yang ingin dihapus:\n\n";
+    const kb = new InlineKeyboard();
+    let i = 1;
+    for (const [id, target] of a.targets) {
+      text += `${i}. *${target.title}*\n`;
+      kb.text(`❌ Hapus No. ${i}`, `del_tgt_${id}`).row();
+      i++;
+      if (i > 15) {
+        text += `\n...dan lainnya.`;
+        break;
+      }
+    }
+    kb.text('💥 HAPUS SEMUA TARGET', 'delete_all_targets').row();
+    kb.text('Tutup', 'delete_this');
+    return { text, reply_markup: kb, parse_mode: "Markdown" };
+};
 
 module.exports = (bot) => {
-  bot.callbackQuery('TGT', async ctx => {
-    const a = getAcc(ctx.from.id)
-    if (!a?.authed) return ctx.answerCallbackQuery('❌ Login dulu')
-    
-    const kb = new InlineKeyboard()
-      .text('➕ Tambah', 'ADDTGT').text('🔄 Semua', 'ALLTGT').row()
-      .text('📋 List', 'LISTTGT').text('🗑️ Hapus', 'CLRTGT').row()
-      .text(`Mode: ${a.all ? 'Auto' : 'Manual'}`, 'TOGGLEALL').row()
-      .text('🔙 Menu', 'MAIN')
-    
-    await ctx.editMessageText(`🎯 Target: ${a.all ? 'Auto' : a.targets.size}`, {reply_markup: kb})
-    await ctx.answerCallbackQuery()
-  })
+  bot.hears('📍 Kelola Target', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a?.authed) return ctx.reply('❌ Login dulu');
+    await ctx.reply(`🎯 Target: ${a.all ? 'Auto' : a.targets.size}`, { reply_markup: targetMenu(a) });
+  });
 
-  bot.callbackQuery('ADDTGT', async ctx => {
-    await ctx.editMessageText('Target:\n@username\nhttps://t.me/xxx\n-1001234567890', { reply_markup: new InlineKeyboard().text('❌ Batal', 'CANCEL') })
-    ctx.session = {act: 'addtgt', mid: ctx.callbackQuery.message.message_id}
-    await ctx.answerCallbackQuery()
-  })
-
-  bot.callbackQuery('ALLTGT', async ctx => {
-    const a = getAcc(ctx.from.id)
+  bot.hears('➕ Tambah Target', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    ctx.session = { act: 'addtgt' };
+    await ctx.reply('Kirim target:\n@username\nhttps://t.me/xxx\n-1001234567890');
+  });
+  
+  bot.hears('🔄 Ambil Semua', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
     try {
-      const count = await a.addAll()
-      await ctx.answerCallbackQuery(`✅ ${count} target`)
+      const count = await a.addAll();
+      await ctx.reply(`✅ Berhasil mengambil ${count} target.`, { reply_markup: targetMenu(a) });
     } catch {
-      await ctx.answerCallbackQuery('❌ Error')
+      await ctx.reply('❌ Gagal mengambil target.');
     }
-    
-    const kb = new InlineKeyboard()
-      .text('➕ Tambah', 'ADDTGT').text('🔄 Semua', 'ALLTGT').row()
-      .text('📋 List', 'LISTTGT').text('🗑️ Hapus', 'CLRTGT').row()
-      .text(`Mode: ${a.all ? 'Auto' : 'Manual'}`, 'TOGGLEALL').row()
-      .text('🔙 Menu', 'MAIN')
-    
-    await ctx.editMessageText(`🎯 Target: ${a.all ? 'Auto' : a.targets.size}`, {reply_markup: kb})
-  })
+  });
 
-  bot.callbackQuery('LISTTGT', async ctx => {
-    const a = getAcc(ctx.from.id)
-    if (!a.targets.size) return ctx.answerCallbackQuery('❌ Kosong')
-    
-    const kb = new InlineKeyboard()
-    let text = `📋 Target (${a.targets.size}):\n\n`
-    let i = 1
-    for (const [id, target] of a.targets) {
-      text += `${i}. ${target.title}\n`
-      kb.text(`🗑️ ${i}`, `RMTGT${id}`).row()
-      i++
-      if (i > 10) break
+  bot.hears('📋 List Target', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    if (!a.targets.size) return ctx.reply('❌ Daftar target kosong.');
+    let text = `📋 Target (${a.targets.size}):\n\n`;
+    let i = 1;
+    for (const [, target] of a.targets) {
+      text += `${i}. ${target.title}\n`;
+      i++;
+      if (i > 20) {
+        text += `\n...dan ${a.targets.size - 20} lainnya.`;
+        break;
+      }
     }
-    kb.text('🔙 Target', 'TGT')
-    
-    await ctx.editMessageText(text, {reply_markup: kb})
-    await ctx.answerCallbackQuery()
-  })
+    await ctx.reply(text);
+  });
 
-  bot.callbackQuery('CLRTGT', async ctx => {
-    const a = getAcc(ctx.from.id)
-    if (!a.targets.size) return ctx.answerCallbackQuery('❌ Kosong')
-    
-    const kb = new InlineKeyboard().text('✅ Ya', 'CONFIRMTGT').text('❌ Tidak', 'TGT')
-    await ctx.editMessageText(`Hapus ${a.targets.size} target?`, {reply_markup: kb})
-    await ctx.answerCallbackQuery()
-  })
-
-  bot.callbackQuery('CONFIRMTGT', async ctx => {
-    const a = getAcc(ctx.from.id)
-    a.targets.clear()
-    await ctx.answerCallbackQuery('✅ Hapus')
-    
-    const kb = new InlineKeyboard()
-      .text('➕ Tambah', 'ADDTGT').text('🔄 Semua', 'ALLTGT').row()
-      .text('📋 List', 'LISTTGT').text('🗑️ Hapus', 'CLRTGT').row()
-      .text(`Mode: ${a.all ? 'Auto' : 'Manual'}`, 'TOGGLEALL').row()
-      .text('🔙 Menu', 'MAIN')
-    
-    await ctx.editMessageText(`🎯 Target: ${a.all ? 'Auto' : 0}`, {reply_markup: kb})
-  })
-
-  bot.callbackQuery('TOGGLEALL', async ctx => {
-    const a = getAcc(ctx.from.id)
-    a.all = !a.all
-    
-    const kb = new InlineKeyboard()
-      .text('➕ Tambah', 'ADDTGT').text('🔄 Semua', 'ALLTGT').row()
-      .text('📋 List', 'LISTTGT').text('🗑️ Hapus', 'CLRTGT').row()
-      .text(`Mode: ${a.all ? 'Auto' : 'Manual'}`, 'TOGGLEALL').row()
-      .text('🔙 Menu', 'MAIN')
-    
-    await ctx.editMessageText(`🎯 Target: ${a.all ? 'Auto' : a.targets.size}`, {reply_markup: kb})
-    await ctx.answerCallbackQuery(`✅ ${a.all ? 'Auto' : 'Manual'}`)
-  })
-
-  bot.callbackQuery(/RMTGT(.+)/, async ctx => {
-    const a = getAcc(ctx.from.id)
-    const targetId = ctx.match[1]
-    a.targets.delete(targetId)
-    
-    if (!a.targets.size) {
-      const kb = new InlineKeyboard()
-        .text('➕ Tambah', 'ADDTGT').text('🔄 Semua', 'ALLTGT').row()
-        .text('📋 List', 'LISTTGT').text('🗑️ Hapus', 'CLRTGT').row()
-        .text(`Mode: ${a.all ? 'Auto' : 'Manual'}`, 'TOGGLEALL').row()
-        .text('🔙 Menu', 'MAIN')
-      
-      return ctx.editMessageText(`🎯 Target: ${a.all ? 'Auto' : 0}`, {reply_markup: kb})
+  bot.hears('🗑️ Hapus Target', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    if (!a.targets.size) return ctx.reply('ℹ️ Daftar target manual kosong, tidak ada yang bisa dihapus.');
+    const { text, reply_markup, parse_mode } = createTargetDeleteList(ctx);
+    await ctx.reply(text, { reply_markup, parse_mode });
+  });
+  
+  bot.callbackQuery(/del_tgt_(.+)/, async (ctx) => {
+    const targetId = ctx.match[1];
+    const a = getAcc(ctx.from.id);
+    if (a && a.targets.has(targetId)) {
+        a.targets.delete(targetId);
+        await ctx.answerCallbackQuery({ text: `✅ Target dihapus.` });
+        const { text, reply_markup, parse_mode } = createTargetDeleteList(ctx);
+        await ctx.editMessageText(text, { reply_markup, parse_mode });
+    } else {
+        await ctx.answerCallbackQuery({ text: '❌ Target sudah tidak ada.', show_alert: true });
     }
-    
-    const kb = new InlineKeyboard()
-    let text = `📋 Target (${a.targets.size}):\n\n`
-    let i = 1
-    for (const [id, target] of a.targets) {
-      text += `${i}. ${target.title}\n`
-      kb.text(`🗑️ ${i}`, `RMTGT${id}`).row()
-      i++
-      if (i > 10) break
-    }
-    kb.text('🔙 Target', 'TGT')
-    
-    await ctx.editMessageText(text, {reply_markup: kb})
-    await ctx.answerCallbackQuery('🗑️ Hapus')
-  })
-}
+  });
+  
+  bot.callbackQuery('delete_all_targets', async (ctx) => {
+      const a = getAcc(ctx.from.id);
+      if (a) {
+          a.targets.clear();
+          await ctx.answerCallbackQuery({ text: '✅ Semua target berhasil dihapus.', show_alert: true });
+          const { text, reply_markup, parse_mode } = createTargetDeleteList(ctx);
+          await ctx.editMessageText(text, { reply_markup, parse_mode });
+      }
+  });
+
+  bot.hears(/🔄 Ubah Mode: (Auto|Manual)/, async (ctx) => {
+      const a = getAcc(ctx.from.id);
+      if (!a) return ctx.reply('❌ Login dulu');
+      a.all = !a.all;
+      await ctx.reply(`✅ Mode diubah ke: ${a.all ? 'Auto' : 'Manual'}`, { reply_markup: targetMenu(a) });
+  });
+};

@@ -1,56 +1,68 @@
-const { InlineKeyboard } = require('grammy')
-const { getAcc } = require('../utils/helper')
-const { mainMenu } = require('../utils/menu')
+const { InlineKeyboard } = require('grammy');
+const { getAcc } = require('../utils/helper');
+const { mainMenu, settingMenu } = require('../utils/menu');
 
 module.exports = (bot) => {
-  bot.callbackQuery(['START','STOP'], async ctx => {
-    const a = getAcc(ctx.from.id)
-    if (!a?.authed) return ctx.answerCallbackQuery('❌ Login dulu')
-    
-    if (ctx.match === 'START') {
-      if (!a.msgs.length) return ctx.answerCallbackQuery('❌ Set pesan')
-      if (!a.all && !a.targets.size) return ctx.answerCallbackQuery('❌ Tambah target')
-      a.start()
-      await ctx.answerCallbackQuery('Mulai')
+  bot.hears(['🚀 Jalankan Ubot', '⛔ Hentikan Ubot'], async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a?.authed) return ctx.reply('❌ Login dulu');
+    if (ctx.message.text === '🚀 Jalankan Ubot') {
+      if (!a.msgs.length) return ctx.reply('❌ Anda belum menambah pesan apa pun.');
+      if (!a.all && !a.targets.size) return ctx.reply('❌ Anda belum menambah target.');
+      a.start(bot.api);
+      await ctx.reply('✅ Ubot berhasil dijalankan...');
     } else {
-      a.stop()
-      await ctx.answerCallbackQuery('Stop')
+      a.stop();
+      await ctx.reply('🛑 Ubot telah dihentikan.');
     }
-    
-    const menu = mainMenu(ctx.from.id)
-    await ctx.editMessageText(menu.text, menu)
-  })
+    const menu = mainMenu(ctx);
+    await ctx.reply(menu.text, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
+  });
 
-  bot.callbackQuery('SET', async ctx => {
-    const a = getAcc(ctx.from.id)
-    if (!a) return ctx.answerCallbackQuery('❌ Login dulu')
-    
-    const kb = new InlineKeyboard()
-      .text(`⏱️ Delay: ${a.delay}s`, 'SETDELAY').row()
-      .text(`⏰ Start: ${a.startAfter}m`, 'SETSTART').text(`⏰ Stop: ${a.stopAfter}m`, 'SETSTOP').row()
-      .text('🔙 Menu', 'MAIN')
-    
-    await ctx.editMessageText('⚙️ Setting', {reply_markup: kb})
-    await ctx.answerCallbackQuery()
-  })
+  bot.hears('⚙️ Settings', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    await ctx.reply('⚙️ Pengaturan', { reply_markup: settingMenu(a) });
+  });
 
-  bot.callbackQuery(['SETDELAY','SETSTART','SETSTOP'], async ctx => {
-    const labels = {SETDELAY: 'Delay (detik):', SETSTART: 'Start delay (menit):', SETSTOP: 'Stop timer (menit):'}
-    await ctx.editMessageText(labels[ctx.match], { reply_markup: new InlineKeyboard().text('❌ Batal', 'CANCEL') })
-    ctx.session = {act: ctx.match.toLowerCase(), mid: ctx.callbackQuery.message.message_id}
-    await ctx.answerCallbackQuery()
-  })
+  bot.hears(/⏱️ Atur Jeda: \d+s/, async (ctx) => {
+    ctx.session = { act: 'setdelay' };
+    await ctx.reply('Kirim jeda baru (dalam detik, contoh: 5):');
+  });
 
-  bot.callbackQuery('STAT', async ctx => {
-    const a = getAcc(ctx.from.id)
-    if (!a) return ctx.answerCallbackQuery('❌ Login dulu')
-    
-    const uptime = a.stats.start ? Math.floor((Date.now() - a.stats.start) / 1000) : 0
-    const format = s => s > 3600 ? `${Math.floor(s/3600)}h ${Math.floor(s%3600/60)}m` : s > 60 ? `${Math.floor(s/60)}m ${s%60}s` : `${s}s`
-    
-    const text = `📊 Status\n\n🔄 ${a.running ? 'Running' : 'Stopped'}\n⏱️ Uptime: ${format(uptime)}\n✅ Sent: ${a.stats.sent}\n❌ Failed: ${a.stats.failed}\n⏭️ Skip: ${a.stats.skip}`
-    
-    await ctx.editMessageText(text, { reply_markup: new InlineKeyboard().text('🔄 Refresh', 'STAT').text('🔙 Menu', 'MAIN') })
-    await ctx.answerCallbackQuery()
-  })
-}
+  bot.hears(/⏰ Tunda Mulai: \d+m/, async (ctx) => {
+    ctx.session = { act: 'setstart' };
+    await ctx.reply('Kirim waktu tunda sebelum mulai (dalam menit, contoh: 10):');
+  });
+  
+  bot.hears(/🛑 Stop Otomatis: \d+m/, async (ctx) => {
+    ctx.session = { act: 'setstop' };
+    await ctx.reply('Kirim batas waktu auto-stop (dalam menit, contoh: 60):');
+  });
+
+  bot.hears('📈 Lihat Statistik', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    const uptime = a.stats.start ? Math.floor((Date.now() - a.stats.start) / 1000) : 0;
+    const format = s => s > 3600 ? `${Math.floor(s/3600)}j ${Math.floor(s%3600/60)}m` : s > 60 ? `${Math.floor(s/60)}m ${s%60}s` : `${s}s`;
+    const text = `📊 Status\n\n🔄 Status: ${a.running ? 'Berjalan' : 'Berhenti'}\n⏱️ Uptime: ${format(uptime)}\n✅ Terkirim: ${a.stats.sent}\n❌ Gagal: ${a.stats.failed}\n⏭️ Dilewati: ${a.stats.skip}`;
+    await ctx.reply(text, { reply_markup: new InlineKeyboard().text('🔄 Refresh', 'STAT').text('Tutup', 'delete_this') });
+  });
+
+  bot.callbackQuery('STAT', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.answerCallbackQuery('❌ Login dulu', { show_alert: true });
+    const uptime = a.stats.start ? Math.floor((Date.now() - a.stats.start) / 1000) : 0;
+    const format = s => s > 3600 ? `${Math.floor(s/3600)}j ${Math.floor(s%3600/60)}m` : s > 60 ? `${Math.floor(s/60)}m ${s%60}s` : `${s}s`;
+    const text = `📊 Status\n\n🔄 Status: ${a.running ? 'Berjalan' : 'Berhenti'}\n⏱️ Uptime: ${format(uptime)}\n✅ Terkirim: ${a.stats.sent}\n❌ Gagal: ${a.stats.failed}\n⏭️ Dilewati: ${a.stats.skip}`;
+    try {
+        await ctx.editMessageText(text, { reply_markup: new InlineKeyboard().text('🔄 Refresh', 'STAT').text('Tutup', 'delete_this') });
+    } catch (e) { /* Abaikan error jika pesan tidak diubah */ }
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery('delete_this', async (ctx) => {
+      await ctx.deleteMessage();
+      await ctx.answerCallbackQuery();
+  });
+};

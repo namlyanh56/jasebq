@@ -15,67 +15,73 @@ class Akun {
       {deviceModel: 'iPhone 16 Pro Max', systemVersion: 'iOS 18.0', appVersion: '10.0.0'})
   }
 
-  async login(phone, botApi) {
+  async login(ctx, phone) {
     await this.init()
+    if (!this.client) {
+        return ctx.reply('❌ Gagal menginisialisasi klien Telegram. Silakan coba lagi.');
+    }
     try {
       await this.client.start({
         phoneNumber: () => phone,
         phoneCode: () => new Promise(r => { 
           this.pendingCode = r
           const { InlineKeyboard } = require('grammy')
-          botApi.sendMessage(this.uid, 'Kirim OTP:', { 
-            reply_markup: new InlineKeyboard().text('❌ Batal', 'CANCEL') 
+          ctx.reply('Kirim OTP:', { 
+            reply_markup: new InlineKeyboard().text('❌ Batal', `cancel_${this.uid}`) 
           }).then(msg => this.pendingMsgId = msg.message_id)
         }),
         password: () => new Promise(r => { 
           this.pendingPass = r
           const { InlineKeyboard } = require('grammy')
-          botApi.sendMessage(this.uid, 'Password 2FA:', { 
-            reply_markup: new InlineKeyboard().text('❌ Batal', 'CANCEL') 
+          ctx.reply('Password 2FA:', { 
+            reply_markup: new InlineKeyboard().text('❌ Batal', `cancel_${this.uid}`) 
           }).then(msg => this.pendingMsgId = msg.message_id)
         }),
-        onError: e => botApi.sendMessage(this.uid, `Error: ${e.message}`)
+        onError: e => ctx.reply(`Error: ${e.message}`)
       })
       this.sess = this.client.session.save(); this.authed = true
       const me = await this.client.getMe(); this.name = me?.firstName || me?.username || 'User'
-      this.cleanup(botApi)
+      this.cleanup(ctx)
       
       const { mainMenu } = require('../utils/menu')
-      const menu = mainMenu(this.uid)
-      botApi.sendMessage(this.uid, `✅ Login berhasil!\n\n${menu.text}`, menu)
+      const menu = mainMenu(ctx)
+      ctx.reply(`✅ Login berhasil!\n\n${menu.text}`, { 
+          reply_markup: menu.reply_markup,
+          parse_mode: menu.parse_mode
+      })
     } catch(e) { 
-      this.cleanup(botApi)
-      botApi.sendMessage(this.uid, `❌ Login gagal: ${e.message}`) 
+      this.cleanup(ctx)
+      ctx.reply(`❌ Login gagal: ${e.message}`) 
     }
   }
 
-  cleanup(botApi) {
-    if (this.pendingMsgId && botApi) {
-      botApi.deleteMessage(this.uid, this.pendingMsgId).catch(() => {})
+  cleanup(ctx) {
+    if (this.pendingMsgId && ctx) {
+      ctx.api.deleteMessage(this.uid, this.pendingMsgId).catch(() => {})
       this.pendingMsgId = null
     }
   }
 
-  handleText(text, botApi) {
+  handleText(text, ctx) {
     if (this.pendingCode) { 
       this.pendingCode(text.replace(/\s+/g,''))
       this.pendingCode = null
-      this.cleanup(botApi)
+      this.cleanup(ctx)
       return true 
     }
     if (this.pendingPass) { 
       this.pendingPass(text.trim())
       this.pendingPass = null
-      this.cleanup(botApi)
+      this.cleanup(ctx)
       return true 
     }
     return false
   }
 
-  cancel(botApi) {
+  cancel(ctx) {
     this.pendingCode = null
     this.pendingPass = null
-    this.cleanup(botApi)
+    this.cleanup(ctx)
   }
 
   start(botApi) {
@@ -89,7 +95,6 @@ class Akun {
         if (botApi) botApi.sendMessage(this.uid, '⏰ Auto stop')
         return
       }
-
       try {
         let list = []
         if (this.all) {
@@ -98,13 +103,10 @@ class Akun {
         } else {
           list = Array.from(this.targets.values())
         }
-        
         if (!list.length || !this.msgs.length) { this.stats.skip++; return }
         if (this.idx >= list.length) this.idx = 0
-        
         const target = list[this.idx++]
         const msg = this.msgs[Math.floor(Math.random() * this.msgs.length)]
-        
         await this.client.sendMessage(target.id || target, {message: msg})
         this.stats.sent++
       } catch(e) {
@@ -115,11 +117,7 @@ class Akun {
         }
       }
     }
-
-    const run = () => {
-      this.timer = setInterval(broadcast, this.delay * 1000)
-    }
-
+    const run = () => { this.timer = setInterval(broadcast, this.delay * 1000) }
     if (this.startAfter > 0) {
       if (botApi) botApi.sendMessage(this.uid, `⏳ Start dalam ${this.startAfter}m`)
       setTimeout(run, this.startAfter * 60000)
@@ -149,8 +147,10 @@ class Akun {
   async addAll() {
     try {
       const dialogs = await this.client.getDialogs()
-      dialogs.filter(d => d.isGroup || d.isChannel).forEach(d => 
-        this.targets.set(d.id, {id: d.id, title: d.title}))
+      dialogs.filter(d => d.isGroup || d.isChannel).forEach(d => {
+        const idAsString = String(d.id);
+        this.targets.set(idAsString, {id: d.id, title: d.title});
+      })
       return this.targets.size
     } catch { return 0 }
   }

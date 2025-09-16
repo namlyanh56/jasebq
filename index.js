@@ -1,25 +1,29 @@
-require('./config/setting')
-const { Bot, session } = require('grammy')
-const authHandler = require('./handler/auth')
-const pesanHandler = require('./handler/pesan')
-const targetHandler = require('./handler/target')
-const jasebHandler = require('./handler/jaseb')
+require('./config/setting');
+const { Bot, session } = require('grammy');
+const { startCommand } = require('./utils/menu');
 
-const bot = new Bot(process.env.BOT_TOKEN)
-bot.use(session({ initial: () => ({}) }))
+const authHandler = require('./handler/auth');
+const pesanHandler = require('./handler/pesan');
+const targetHandler = require('./handler/target');
+const jasebHandler = require('./handler/jaseb');
+const inputHandler = require('./handler/input');
 
-authHandler(bot)
-pesanHandler(bot)
-targetHandler(bot)
-jasebHandler(bot)
+const bot = new Bot(process.env.BOT_TOKEN);
+bot.use(session({ initial: () => ({}) }));
 
-bot.command('start', require('./utils/menu').startCommand)
-bot.callbackQuery('MAIN', require('./utils/menu').mainCommand)
-bot.callbackQuery('HELP', require('./utils/menu').helpCommand)
-bot.callbackQuery('NOOP', async ctx => ctx.answerCallbackQuery())
+authHandler(bot);
+pesanHandler(bot);
+targetHandler(bot);
+jasebHandler(bot);
 
-bot.on('message:text', require('./handler/input'))
+bot.command('start', startCommand);
+bot.hears('⬅️ Kembali', startCommand);
 
-bot.catch(e => { if (!e.message?.includes('message is not modified')) console.error(e) })
-bot.start()
-console.log('Jaseb Dimulai')
+bot.on('message:text', inputHandler);
+
+bot.catch(e => {
+  console.error("ERROR UTAMA:", e);
+});
+
+bot.start();
+console.log('Jaseb Dimulai');
