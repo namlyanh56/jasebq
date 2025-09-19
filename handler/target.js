@@ -97,10 +97,5 @@ module.exports = (bot) => {
       }
   });
 
-  bot.hears(/🔄 Ubah Mode: (Auto|Manual)/, async (ctx) => {
-      const a = getAcc(ctx.from.id);
-      if (!a) return ctx.reply('❌ Login dulu');
-      a.all = !a.all;
-      await ctx.reply(`✅ Mode diubah ke: ${a.all ? 'Auto' : 'Manual'}`, { reply_markup: targetMenu(a) });
-  });
 };
+
