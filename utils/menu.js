@@ -40,18 +40,12 @@ const pesanMenu = () => {
     .resized();
 };
 
-const targetMenu = (ctx) => { // Menggunakan ctx sebagai parameter agar konsisten
-  const kb = new Keyboard()
-    .text(k('➕ Tambah Target')).text(k('🔄 Ambil Semua')).row()
-    .text(k('📋 List Target')).text(k('🗑️ Hapus Target')).row()
-    .text(k('⬅️ Kembali'))
-    .resized();
-
-  // Kita bungkus keyboard (kb) di dalam objek return ini
-  return {
-    text: 'Silakan kelola target broadcast Anda.', // Teks yang akan ditampilkan bersama menu
-    reply_markup: kb,
-    parse_mode: "Markdown"
+const targetMenu = (akun) => {
+    return new Keyboard()
+     .text(k('➕ Tambah Target')).text(k('🔄 Ambil Semua')).row()
+     .text(k('📋 List Target')).text(k('🗑️ Hapus Target')).row()
+     .text(k('⬅️ Kembali'))
+     .resized();
   };
 };
 
@@ -110,5 +104,6 @@ _Butuh bantuan atau ada pertanyaan?_
 };
 
 module.exports = { allCommandNames, mainMenu, pesanMenu, targetMenu, settingMenu, switchMenu, startCommand, helpCommand };
+
 
 
