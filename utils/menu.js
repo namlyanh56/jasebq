@@ -47,7 +47,6 @@ const targetMenu = (akun) => {
      .text(k('⬅️ Kembali'))
      .resized();
   };
-};
 
 const settingMenu = (akun) => {
     return new Keyboard()
@@ -104,6 +103,7 @@ _Butuh bantuan atau ada pertanyaan?_
 };
 
 module.exports = { allCommandNames, mainMenu, pesanMenu, targetMenu, settingMenu, switchMenu, startCommand, helpCommand };
+
 
 
 
