@@ -18,7 +18,7 @@ const mainMenu = (ctx) => {
       .text(k('🔐 Login')).row()
       .text(k('🔄 Ganti Sesi')).text(k('💡 Bantuan'))
       .resized();
-    const text = `*👋🏻 Hai!, ${firstName},*\n\nSelamat datang di Ubot by @JaeHype!\nBot ini bisa broadcast secara otomatis!\n\n*Owner : @JaeHype*\n*Channel: @PanoramaaStoree*`;
+    const text = `*👋🏻 Hai!, ${firstName}*\n\nSelamat datang di Ubot by @JaeHype!\nBot ini bisa broadcast secara otomatis!\n\n*Owner : @JaeHype*\n*Channel: @PanoramaaStoree*`;
     return { text, reply_markup: keyboard, parse_mode: "Markdown" };
   }
 
@@ -91,7 +91,7 @@ Bot ini adalah asisten Anda untuk menjalankan *Userbot Telegram*, yang berfungsi
 • \`🔐\` *Login Multi-Sesi*: Gunakan beberapa akun.
 • \`✉️\` *Manajemen Pesan*: Kelola daftar pesan teks Anda.
 • \`🎯\` *Target Otomatis & Manual*: Pilih target atau ambil semua.
-• \`🔧\` *Kontrol Penuh*: Atur jeda, tunda mulai, & stop otomatis.
+• \`🔧\` *Kontrol Penuh*: Atur jeda, Waktu mulai, & Waktu stop.
 • \`📈\` *Statistik*: Pantau jumlah pesan terkirim dan gagal.
 
 🚀 *ALUR CEPAT*
@@ -110,4 +110,5 @@ _Butuh bantuan atau ada pertanyaan?_
 };
 
 module.exports = { allCommandNames, mainMenu, pesanMenu, targetMenu, settingMenu, switchMenu, startCommand, helpCommand };
+
 
