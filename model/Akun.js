@@ -222,16 +222,94 @@ class Akun {
     }
   }
 
-  addTargets(text) {
-    let count = 0;
-    text.split(/\s+/).forEach(t => {
-      t = t.trim();
-      if (t.startsWith('https://t.me/')) t = t.replace('https://t.me/', '@');
-      if (t.startsWith('@') || /^-?\d+$/.test(t)) {
-        this.targets.set(t, {id: t, title: t}); count++;
+  async addTargets(text) {
+    const inputs = text.split(/\s+/).filter(Boolean);
+    let success = 0;
+
+    for (let raw of inputs) {
+      const original = raw;
+      try {
+        // Normalisasi dasar
+        let t = raw.trim();
+
+        if (t.startsWith('https://t.me/')) t = t.replace('https://t.me/', '');
+        if (t.startsWith('@')) t = t.slice(1);
+
+        // 1. Invite link privat: +HASH atau joinchat/HASH
+        if (t.startsWith('+') || t.startsWith('joinchat/')) {
+            let hash = t.startsWith('+') ? t.slice(1) : t.split('joinchat/')[1];
+            hash = hash.split('?')[0];
+
+            let chatEntity = null;
+            try {
+              const info = await this.client.invoke(new Api.messages.CheckChatInvite({ hash }));
+              if (info.className === 'ChatInviteAlready') {
+                chatEntity = info.chat;
+              } else if (info.className === 'ChatInvite') {
+                // Belum join – join sekarang
+                const upd = await this.client.invoke(new Api.messages.ImportChatInvite({ hash }));
+                chatEntity = upd.chats?.[0];
+              }
+            } catch (e) {
+              // Jika error USER_ALREADY_PARTICIPANT, coba ambil via dialogs
+              if (/USER_ALREADY_PARTICIPANT/i.test(e.message)) {
+                const dialogs = await this.client.getDialogs();
+                chatEntity = dialogs.find(d => d?.id && d.title); // fallback (mungkin bukan persis, tapi jarang terjadi)
+              } else {
+                throw e;
+              }
+            }
+
+            if (chatEntity) {
+              const idStr = String(chatEntity.id);
+              this.targets.set(idStr, {
+                id: chatEntity.id,
+                title: chatEntity.title || idStr,
+                entity: chatEntity
+              });
+              success++;
+            } else {
+              this.targets.set(original, { id: original, title: `${original} (gagal ambil)`, entity: null });
+            }
+            continue;
+        }
+
+        // 2. Username publik
+        if (/^[A-Za-z0-9_]{5,}$/.test(t)) {
+          const ent = await this.client.getEntity(t);
+          const idStr = String(ent.id);
+          this.targets.set(idStr, {
+            id: ent.id,
+            title: ent.title || ent.firstName || ent.username || idStr,
+            entity: ent
+          });
+          success++;
+          continue;
+        }
+
+        // 3. Numeric ID (-100xxxx atau chat biasa)
+        if (/^-?\d+$/.test(t)) {
+          const big = BigInt(t);
+          const ent = await this.client.getEntity(big);
+          const idStr = String(ent.id);
+            this.targets.set(idStr, {
+              id: ent.id,
+              title: ent.title || ent.firstName || idStr,
+              entity: ent
+            });
+          success++;
+          continue;
+        }
+
+        // 4. Format tidak dikenali
+        this.targets.set(original, { id: original, title: `${original} (format tidak dikenali)`, entity: null });
+
+      } catch (err) {
+        this.targets.set(raw, { id: raw, title: `${raw} (error: ${err.message})`, entity: null });
       }
-    });
-    return count;
+    }
+
+    return success;
   }
 
   async addAll() {
@@ -247,3 +325,4 @@ class Akun {
 }
 
 module.exports = Akun
+
