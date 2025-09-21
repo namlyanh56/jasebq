@@ -1,6 +1,6 @@
 const { InlineKeyboard } = require('grammy');
 const { getAcc } = require('../utils/helper');
-const { mainMenu, settingMenu } = require('../utils/menu');
+const { mainMenu, settingMenu, jedaMenu } = require('../utils/menu');
 
 module.exports = (bot) => {
   bot.hears(['🚀 Jalankan Ubot', '⛔ Hentikan Ubot'], async (ctx) => {
@@ -25,9 +25,46 @@ module.exports = (bot) => {
     await ctx.reply('⚙️ Pengaturan', { reply_markup: settingMenu(a) });
   });
 
-  bot.hears(/⏱️ Atur Jeda: \d+s/, async (ctx) => {
-    ctx.session = { act: 'setdelay' };
-    await ctx.reply('Kirim jeda baru (dalam detik, contoh: 5):');
+  bot.hears(/^(🔗 Jeda Antar Grup|⛓️ Jeda Per Semua Grup): .+/, async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    
+    if (ctx.message.text.startsWith('🔗 Jeda Antar Grup')) {
+      ctx.session = { act: 'setdelay' };
+      await ctx.reply('Kirim jeda baru (dalam detik, contoh: 5):');
+    } else if (ctx.message.text.startsWith('⛓️ Jeda Per Semua Grup')) {
+      ctx.session = { act: 'setdelayall' };
+      await ctx.reply('Kirim jeda baru (dalam menit, minimal 20 menit direkomendasikan):');
+    }
+  });
+  
+  bot.hears('🔄 Ganti Mode Jeda', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    
+    await ctx.reply('Pilih mode jeda yang ingin digunakan:', { reply_markup: jedaMenu() });
+  });
+  
+  bot.hears('🔗 Jeda Antar Grup', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    
+    a.delayMode = 'antar';
+    await ctx.reply('✅ Mode jeda diubah ke *Jeda Antar Grup*\n\nPengiriman pesan akan berurutan dari satu grup ke grup lainnya. Semua grup akan menerima pesan yang sama sebelum melanjutkan ke pesan berikutnya.\n\n*Cocok untuk*: Jumlah grup banyak (>10)', { 
+      parse_mode: "Markdown",
+      reply_markup: settingMenu(a) 
+    });
+  });
+  
+  bot.hears('⛓️ Jeda Per Semua Grup', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    
+    a.delayMode = 'semua';
+    await ctx.reply('✅ Mode jeda diubah ke *Jeda Per Semua Grup*\n\nPesan akan dikirim secara bersamaan ke semua grup target dengan jeda waktu yang panjang antar pesan. Minimum jeda 20 menit direkomendasikan.\n\n*Cocok untuk*: Jumlah grup sedikit (<10)', { 
+      parse_mode: "Markdown",
+      reply_markup: settingMenu(a) 
+    });
   });
 
   bot.hears(/⏰ Tunda Mulai: \d+m/, async (ctx) => {
