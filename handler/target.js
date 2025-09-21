@@ -54,16 +54,13 @@ module.exports = (bot) => {
   if (!a) return ctx.reply('❌ Login dulu');
   if (!a.targets.size) return ctx.reply('❌ Daftar target kosong.');
   let text = `📋 Target (${a.targets.size}):\n\n`;
-  let i = 1;
-  for (const [, target] of a.targets) {
-    text += `${i}. ${target.title}\n`;
-    i++;
-    if (i > 20) {
-      text += `\n...dan ${a.targets.size - 20} lainnya.`;
-      break;
-    }
-  }
-  await ctx.reply(text);
+let i = 1;
+for (const [, target] of a.targets) {
+  text += `${i}. ${target.title}\n`;
+  i++;
+  if (i > 20) { text += `\n...dan ${a.targets.size - 20} lainnya.`; break; }
+}
+await ctx.reply(text);
 });
 
   bot.hears('🗑️ Hapus Target', async (ctx) => {
@@ -98,5 +95,6 @@ module.exports = (bot) => {
   });
 
 };
+
 
 
