@@ -45,14 +45,14 @@ module.exports = async (ctx) => {
       await ctx.reply(menu.text, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
     },
     addtgt: async () => {
-      const count = a.addTargets(text);
-      const menu = mainMenu(ctx);
-      if (count) {
-          await ctx.reply(`✅ ${count} target ditambah`, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
-      } else {
-          await ctx.reply(`❌ Format salah`, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
-      }
-    },
+  const count = await a.addTargets(text); // jadi async
+  const menu = mainMenu(ctx);
+  if (count) {
+      await ctx.reply(`✅ ${count} target ditambah`, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
+  } else {
+      await ctx.reply(`❌ Format salah`, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
+  }
+},
     setdelay: async () => {
       const delay = +text;
       if (delay >= 1 && delay <= 3600) {
@@ -93,6 +93,7 @@ module.exports = async (ctx) => {
     ctx.session = null;
   }
 };
+
 
 
 
