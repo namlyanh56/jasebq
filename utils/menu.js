@@ -41,19 +41,33 @@ const pesanMenu = () => {
 };
 
 const targetMenu = (akun) => {
-    return new Keyboard()
-     .text(k('➕ Tambah Target')).text(k('🔄 Ambil Semua')).row()
-     .text(k('📋 List Target')).text(k('🗑️ Hapus Target')).row()
-     .text(k('⬅️ Kembali'))
-     .resized();
+    return new Keyboard()
+     .text(k('➕ Tambah Target')).text(k('🔄 Ambil Semua')).row()
+     .text(k('📋 List Target')).text(k('🗑️ Hapus Target')).row()
+     .text(k('⬅️ Kembali'))
+     .resized();
   };
 
 const settingMenu = (akun) => {
+    // Pilih label yang tepat berdasarkan mode jeda
+    const delayModeText = akun.delayMode === 'semua' 
+      ? `⛓️ Jeda Per Semua Grup: ${akun.delayAllGroups}m` 
+      : `🔗 Jeda Antar Grup: ${akun.delay}s`;
+    
     return new Keyboard()
-      .text(k(`⏱️ Atur Jeda: ${akun.delay}s`)).row()
+      .text(k(delayModeText)).row()
+      .text(k('🔄 Ganti Mode Jeda')).row()
       .text(k(`⏰ Tunda Mulai: ${akun.startAfter}m`)).text(k(`🛑 Stop Otomatis: ${akun.stopAfter}m`)).row()
       .text(k('⬅️ Kembali'))
       .resized();
+};
+
+const jedaMenu = () => {
+  return new Keyboard()
+    .text(k('🔗 Jeda Antar Grup')).row()
+    .text(k('⛓️ Jeda Per Semua Grup')).row()
+    .text(k('⬅️ Kembali'))
+    .resized();
 };
 
 const switchMenu = (user) => {
@@ -102,8 +116,14 @@ _Butuh bantuan atau ada pertanyaan?_
   });
 };
 
-module.exports = { allCommandNames, mainMenu, pesanMenu, targetMenu, settingMenu, switchMenu, startCommand, helpCommand };
-
-
-
-
+module.exports = { 
+  allCommandNames, 
+  mainMenu, 
+  pesanMenu, 
+  targetMenu, 
+  settingMenu, 
+  jedaMenu,
+  switchMenu, 
+  startCommand, 
+  helpCommand 
+};
