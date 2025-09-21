@@ -45,14 +45,18 @@ module.exports = async (ctx) => {
       await ctx.reply(menu.text, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
     },
     addtgt: async () => {
-      const count = a.addTargets(text);
-      const menu = mainMenu(ctx);
-      if (count) {
-          await ctx.reply(`✅ ${count} target ditambah`, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
-      } else {
-          await ctx.reply(`❌ Format salah`, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
-      }
-    },
+  try {
+    const count = await a.addTargets(text);   // <-- pakai await
+    const menu = mainMenu(ctx);
+    if (count) {
+      await ctx.reply(`✅ ${count} target valid ditambah`, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
+    } else {
+      await ctx.reply(`⚠️ Tidak ada target valid. (Tetap disimpan yang gagal untuk referensi)`, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
+    }
+  } catch (e) {
+    await ctx.reply(`❌ Gagal menambah target: ${e.message}`);
+  }
+},
     setdelay: async () => {
       const delay = +text;
       if (delay >= 1 && delay <= 3600) {
@@ -107,3 +111,4 @@ module.exports = async (ctx) => {
     ctx.session = null;
   }
 };
+
