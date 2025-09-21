@@ -1,14 +1,19 @@
+// handler/input.js
+
 const { getUser, getAcc } = require('../utils/helper');
 const { mainMenu, allCommandNames, settingMenu } = require('../utils/menu');
 
 module.exports = async (ctx) => {
   const text = ctx.message.text?.trim();
+
+  // Pemeriksaan ini penting agar tombol perintah tidak diproses oleh file ini.
   if (allCommandNames && allCommandNames.has(text)) {
     return;
   }
   
   const u = getUser(ctx.from.id);
   const a = getAcc(ctx.from.id);
+
   const targetAcc = u.accounts.get(ctx.session?.id) || a;
   if (targetAcc?.handleText(text, ctx)) return;
   
@@ -21,6 +26,7 @@ module.exports = async (ctx) => {
     try { await ctx.api.deleteMessage(ctx.from.id, ctx.session.mid) } catch {}
   }
   
+  // Objek 'actions' yang lengkap dan sudah diperbaiki
   const actions = {
     phone: async () => {
       if (!/^\+\d{10,15}$/.test(text)) {
@@ -39,32 +45,46 @@ module.exports = async (ctx) => {
       await ctx.reply(menu.text, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
     },
     addtgt: async () => {
-  try {
-    const count = await a.addTargets(text);   // <-- pakai await
-    const menu = mainMenu(ctx);
-    if (count) {
-      await ctx.reply(`✅ ${count} target valid ditambah`, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
-    } else {
-      await ctx.reply(`⚠️ Tidak ada target valid. (Tetap disimpan yang gagal untuk referensi)`, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
-    }
-  } catch (e) {
-    await ctx.reply(`❌ Gagal menambah target: ${e.message}`);
-  }
-},
+      const count = a.addTargets(text);
+      const menu = mainMenu(ctx);
+      if (count) {
+          await ctx.reply(`✅ ${count} target ditambah`, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
+      } else {
+          await ctx.reply(`❌ Format salah`, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
+      }
+    },
     setdelay: async () => {
       const delay = +text;
       if (delay >= 1 && delay <= 3600) {
         a.delay = delay;
-        await ctx.reply(`✅ Jeda berhasil diubah menjadi: ${delay} detik`, { reply_markup: settingMenu(a) });
+        a.delayMode = 'antar';
+        await ctx.reply(`✅ Jeda Antar Grup berhasil diubah menjadi: ${delay} detik`, {
+            reply_markup: settingMenu(a)
+        });
       } else {
         await ctx.reply(`❌ Nilai tidak valid. Masukkan angka antara 1-3600.`);
+      }
+    },
+    setdelayall: async () => {
+      const minutes = +text;
+      if (minutes >= 1 && minutes <= 1440) {
+        a.delayAllGroups = minutes;
+        a.delayMode = 'semua';
+        await ctx.reply(`✅ Jeda Per Semua Grup berhasil diubah menjadi: ${minutes} menit${minutes < 20 ? '\n\n⚠️ *PERINGATAN*: Nilai jeda terlalu rendah. Disarankan minimal 20 menit untuk menghindari batasan Telegram.' : ''}`, {
+            reply_markup: settingMenu(a),
+            parse_mode: "Markdown"
+        });
+      } else {
+        await ctx.reply(`❌ Nilai tidak valid. Masukkan angka antara 1-1440.`);
       }
     },
     setstart: async () => {
       const minutes = +text;
       if (minutes >= 0 && minutes <= 1440) {
         a.startAfter = minutes;
-        await ctx.reply(`✅ Tunda mulai berhasil diubah menjadi: ${minutes} menit`, { reply_markup: settingMenu(a) });
+        await ctx.reply(`✅ Tunda mulai berhasil diubah menjadi: ${minutes} menit`, {
+            reply_markup: settingMenu(a)
+        });
       } else {
         await ctx.reply(`❌ Nilai tidak valid. Masukkan angka antara 0-1440.`);
       }
@@ -73,7 +93,9 @@ module.exports = async (ctx) => {
       const minutes = +text;
       if (minutes >= 0 && minutes <= 1440) {
         a.stopAfter = minutes;
-        await ctx.reply(`✅ Stop otomatis berhasil diubah menjadi: ${minutes} menit`, { reply_markup: settingMenu(a) });
+        await ctx.reply(`✅ Stop otomatis berhasil diubah menjadi: ${minutes} menit`, {
+            reply_markup: settingMenu(a)
+        });
       } else {
         await ctx.reply(`❌ Nilai tidak valid. Masukkan angka antara 0-1440.`);
       }
@@ -85,4 +107,3 @@ module.exports = async (ctx) => {
     ctx.session = null;
   }
 };
-
