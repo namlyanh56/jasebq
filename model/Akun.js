@@ -1,6 +1,7 @@
 const { TelegramClient } = require('telegram')
 const { StringSession } = require('telegram/sessions')
 const { API_ID, API_HASH } = require('../config/setting')
+const { Api } = require('telegram');
 
 class Akun {
   constructor(uid) {
@@ -128,17 +129,68 @@ class Akun {
     }
   }
 
-  addTargets(text) {
-    let count = 0
-    text.split(/\s+/).forEach(t => {
-      t = t.trim()
-      if (t.startsWith('https://t.me/')) t = t.replace('https://t.me/', '@')
-      if (t.startsWith('@') || /^-?\d+$/.test(t)) {
-        this.targets.set(t, {id: t, title: t}); count++
+  async addTargets(text) {
+  let count = 0;
+  const targetsToAdd = text.split(/\s+/);
+
+  for (let t of targetsToAdd) {
+    t = t.trim();
+    let idOrLink = t;
+    let title = t;
+    let groupInfo = null;
+
+    // Handle link privat (invite)
+    if (t.startsWith('https://t.me/+')) {
+      try {
+        groupInfo = await this.client.invoke(
+          new Api.channels.JoinChannel({ channel: t })
+        );
+        // Ambil channel info setelah join
+        const dialog = await this.client.getEntity(t);
+        idOrLink = dialog.id;
+        title = dialog.title || t;
+      } catch (e) {
+        // Jika gagal join, tetap tambahkan sebagai link tapi beri info gagal join
+        title = `${t} (Gagal join: ${e.message})`;
       }
-    })
-    return count
+    }
+    // Handle username
+    else if (t.startsWith('https://t.me/')) {
+      try {
+        const username = t.replace('https://t.me/', '').replace('@', '');
+        const dialog = await this.client.getEntity(username);
+        idOrLink = dialog.id;
+        title = dialog.title || dialog.username || t;
+      } catch (e) {
+        title = `${t} (Tidak ditemukan: ${e.message})`;
+      }
+    }
+    // Handle @username dan ID
+    else if (t.startsWith('@')) {
+      try {
+        const username = t.replace('@', '');
+        const dialog = await this.client.getEntity(username);
+        idOrLink = dialog.id;
+        title = dialog.title || dialog.username || t;
+      } catch (e) {
+        title = `${t} (Tidak ditemukan: ${e.message})`;
+      }
+    }
+    else if (/^-?\d+$/.test(t)) {
+      try {
+        const dialog = await this.client.getEntity(parseInt(t));
+        idOrLink = dialog.id;
+        title = dialog.title || t;
+      } catch (e) {
+        title = `${t} (Tidak ditemukan: ${e.message})`;
+      }
+    }
+
+    this.targets.set(String(idOrLink), { id: idOrLink, title });
+    count++;
   }
+  return count;
+}
 
   async addAll() {
     try {
@@ -153,4 +205,5 @@ class Akun {
 }
 
 module.exports = Akun
+
 
