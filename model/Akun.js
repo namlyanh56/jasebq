@@ -1,24 +1,24 @@
-const { TelegramClient } = require('telegram')
-const { StringSession } = require('telegram/sessions')
-const { API_ID, API_HASH } = require('../config/setting')
-const { Api } = require('telegram');
+const { TelegramClient } = require('telegram');
+const { StringSession } = require('telegram/sessions');
+const { API_ID, API_HASH } = require('../config/setting');
+const { Api } = require('telegram'); // <-- TAMBAHKAN
 
 class Akun {
   constructor(uid) {
     this.uid = uid; this.client = null; this.sess = ''; this.name = ''; this.authed = false
     this.msgs = []; this.targets = new Map(); this.all = false; this.delay = 5; this.startAfter = 0; this.stopAfter = 0
-    this.running = false; this.timer = null; this.idx = 0; this.msgIdx = 0; // DITAMBAHKAN
+    this.running = false; this.timer = null; this.idx = 0; this.msgIdx = 0;
     this.stats = {sent:0,failed:0,skip:0,start:0}
     this.pendingCode = null; this.pendingPass = null; this.pendingMsgId = null
   }
 
   async init() {
     this.client = new TelegramClient(new StringSession(this.sess), API_ID, API_HASH, 
-      {deviceModel: 'iPhone 16 Pro Max', systemVersion: 'iOS 18.0', appVersion: '10.0.0'})
+      {deviceModel: 'iPhone 16 Pro Max', systemVersion: 'iOS 18.0', appVersion: '10.0.0'});
   }
 
   async login(ctx, phone) {
-    await this.init()
+    await this.init();
     if (!this.client) {
         return ctx.reply('❌ Gagal menginisialisasi klien Telegram. Silakan coba lagi.');
     }
@@ -66,16 +66,10 @@ class Akun {
 
   handleText(text, ctx) {
     if (this.pendingCode) { 
-      this.pendingCode(text.replace(/\s+/g,''))
-      this.pendingCode = null
-      this.cleanup(ctx)
-      return true 
+      this.pendingCode(text.replace(/\s+/g,'')); this.pendingCode = null; this.cleanup(ctx); return true 
     }
     if (this.pendingPass) { 
-      this.pendingPass(text.trim())
-      this.pendingPass = null
-      this.cleanup(ctx)
-      return true 
+      this.pendingPass(text.trim()); this.pendingPass = null; this.cleanup(ctx); return true 
     }
     return false
   }
@@ -101,10 +95,11 @@ class Akun {
         let list = Array.from(this.targets.values())
         if (!list.length || !this.msgs.length) { this.stats.skip++; return }
         if (this.idx >= list.length) this.idx = 0
-        if (this.msgIdx >= this.msgs.length) this.msgIdx = 0 // DITAMBAHKAN
+        if (this.msgIdx >= this.msgs.length) this.msgIdx = 0
         const target = list[this.idx++]
-        const msg = this.msgs[this.msgIdx++] // DIUBAH
-        await this.client.sendMessage(target.id || target, {message: msg})
+        const msg = this.msgs[this.msgIdx++]
+
+        await this.client.sendMessage(target.id, { message: msg })
         this.stats.sent++
       } catch(e) {
         this.stats.failed++
@@ -129,68 +124,92 @@ class Akun {
     }
   }
 
+  // --- FUNGSI BARU (ASYNC) UNTUK MENDETEKSI SEMUA FORMAT TERMASUK PRIVATE INVITE ---
   async addTargets(text) {
-  let count = 0;
-  const targetsToAdd = text.split(/\s+/);
+    let count = 0;
+    const items = text.split(/\s+/).filter(Boolean);
 
-  for (let t of targetsToAdd) {
-    t = t.trim();
-    let idOrLink = t;
-    let title = t;
-    let groupInfo = null;
+    for (let raw of items) {
+      const original = raw;
+      try {
+        let t = raw.trim();
 
-    // Handle link privat (invite)
-    if (t.startsWith('https://t.me/+')) {
-      try {
-        groupInfo = await this.client.invoke(
-          new Api.channels.JoinChannel({ channel: t })
-        );
-        // Ambil channel info setelah join
-        const dialog = await this.client.getEntity(t);
-        idOrLink = dialog.id;
-        title = dialog.title || t;
+        // Normalisasi: hilangkan prefix https://t.me/
+        if (t.startsWith('https://t.me/')) {
+          t = t.replace('https://t.me/', '');
+        }
+
+        // Jika diawali '@'
+        if (t.startsWith('@')) t = t.slice(1);
+
+        // 1. INVITE LINK PRIVATE: +HASH atau joinchat/HASH
+        if (t.startsWith('+') || t.startsWith('joinchat/')) {
+          let hash = t.startsWith('+') ? t.slice(1) : t.split('joinchat/')[1];
+          hash = hash.split('?')[0];
+
+          // Cek apakah sudah join
+            let chatObj = null;
+            try {
+              const info = await this.client.invoke(new Api.messages.CheckChatInvite({ hash }));
+              if (info.className === 'ChatInviteAlready') {
+                chatObj = info.chat;
+              } else {
+                // Belum join -> join sekarang
+                const upd = await this.client.invoke(new Api.messages.ImportChatInvite({ hash }));
+                chatObj = upd.chats?.[0];
+              }
+            } catch (e) {
+              // Jika error USER_ALREADY_PARTICIPANT, ambil dari dialogs
+              if (/USER_ALREADY_PARTICIPANT/i.test(e.message)) {
+                const dialogs = await this.client.getDialogs();
+                chatObj = dialogs.find(d => d?.id && d.title); // fallback (ambil apa saja)
+              } else {
+                throw e;
+              }
+            }
+
+            if (chatObj) {
+              const id = chatObj.id;
+              const title = chatObj.title || chatObj.username || original;
+              this.targets.set(String(id), { id, title });
+              count++;
+            } else {
+              this.targets.set(original, { id: original, title: original + ' (gagal ambil)' });
+            }
+            continue;
+        }
+
+        // 2. USERNAME / PUBLIC LINK (huruf/angka underscore minimal 5)
+        if (/^[A-Za-z0-9_]{5,}$/.test(t)) {
+          const ent = await this.client.getEntity(t);
+          const id = ent.id;
+          const title = ent.title || ent.firstName || ent.username || original;
+          this.targets.set(String(id), { id, title });
+          count++;
+          continue;
+        }
+
+        // 3. NUMERIC ID
+        if (/^-?\d+$/.test(t)) {
+          // -100.... -> BigInt
+          const ent = await this.client.getEntity(BigInt(t));
+          const id = ent.id;
+          const title = ent.title || ent.firstName || t;
+          this.targets.set(String(id), { id, title });
+          count++;
+          continue;
+        }
+
+        // 4. Kalau format tidak dikenali
+        this.targets.set(original, { id: original, title: original + ' (format tidak dikenali)' });
+
       } catch (e) {
-        // Jika gagal join, tetap tambahkan sebagai link tapi beri info gagal join
-        title = `${t} (Gagal join: ${e.message})`;
-      }
-    }
-    // Handle username
-    else if (t.startsWith('https://t.me/')) {
-      try {
-        const username = t.replace('https://t.me/', '').replace('@', '');
-        const dialog = await this.client.getEntity(username);
-        idOrLink = dialog.id;
-        title = dialog.title || dialog.username || t;
-      } catch (e) {
-        title = `${t} (Tidak ditemukan: ${e.message})`;
-      }
-    }
-    // Handle @username dan ID
-    else if (t.startsWith('@')) {
-      try {
-        const username = t.replace('@', '');
-        const dialog = await this.client.getEntity(username);
-        idOrLink = dialog.id;
-        title = dialog.title || dialog.username || t;
-      } catch (e) {
-        title = `${t} (Tidak ditemukan: ${e.message})`;
-      }
-    }
-    else if (/^-?\d+$/.test(t)) {
-      try {
-        const dialog = await this.client.getEntity(parseInt(t));
-        idOrLink = dialog.id;
-        title = dialog.title || t;
-      } catch (e) {
-        title = `${t} (Tidak ditemukan: ${e.message})`;
+        this.targets.set(raw, { id: raw, title: `${raw} (error: ${e.message})` });
       }
     }
 
-    this.targets.set(String(idOrLink), { id: idOrLink, title });
-    count++;
+    return count;
   }
-  return count;
-}
 
   async addAll() {
     try {
@@ -204,6 +223,4 @@ class Akun {
   }
 }
 
-module.exports = Akun
-
-
+module.exports = Akun;
