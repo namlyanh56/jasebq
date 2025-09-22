@@ -39,10 +39,37 @@ module.exports = async (ctx) => {
       }
     },
     addmsg: async () => {
-      a.msgs.push(text);
-      await ctx.reply(`✅ Pesan teks berhasil ditambahkan.`);
-      const menu = mainMenu(ctx);
-      await ctx.reply(menu.text, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
+  const m = ctx.message;
+  // 1. Jika forward dari channel/grup
+  if (m.forward_from_chat && m.forward_from_message_id) {
+    a.msgs.push({
+      chatId: m.forward_from_chat.id,
+      messageId: m.forward_from_message_id,
+      preview: (m.text || m.caption || '').slice(0, 60)
+    });
+    await ctx.reply('✅ Disimpan (forward sumber asli).');
+  } else {
+    // 2. Pesan biasa (teks atau media)
+    //   - Media non-teks masih bisa di-forward karena sumbernya chat bot
+    const basePreview =
+      (m.text || m.caption) ? (m.text || m.caption).slice(0, 60)
+      : m.photo ? '[Foto]'
+      : m.video ? '[Video]'
+      : m.document ? `[File:${m.document.file_name || 'dok'}]`
+      : m.sticker ? '[Sticker]'
+      : m.voice ? '[Voice]'
+      : '[Pesan]';
+
+    a.msgs.push({
+      chatId: BOT_ID,
+      messageId: m.message_id,
+      preview: basePreview
+    });
+    await ctx.reply('✅ Disimpan (sumber: chat dengan bot).');
+  }
+
+  const menu = mainMenu(ctx);
+  await ctx.reply(menu.text, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
     },
     addtgt: async () => {
   try {
@@ -111,4 +138,5 @@ module.exports = async (ctx) => {
     ctx.session = null;
   }
 };
+
 
