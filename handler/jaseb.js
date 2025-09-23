@@ -7,13 +7,13 @@ module.exports = (bot) => {
     const a = getAcc(ctx.from.id);
     if (!a?.authed) return ctx.reply('❌ Login dulu');
     if (ctx.message.text === '🚀 Jalankan Ubot') {
-      if (!a.msgs.length) return ctx.reply('❌ Anda belum menambah pesan apa pun.');
+      if (!a.msgs.length) return ctx.reply('❌ Anda belum menambah pesan.');
       if (!a.all && !a.targets.size) return ctx.reply('❌ Anda belum menambah target.');
       a.start(bot.api);
-      await ctx.reply('✅ Ubot berhasil dijalankan...');
+      await ctx.reply('✅ Ubot dijalankan.');
     } else {
       a.stop();
-      await ctx.reply('🛑 Ubot telah dihentikan.');
+      await ctx.reply('🛑 Ubot dihentikan.');
     }
     const menu = mainMenu(ctx);
     await ctx.reply(menu.text, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
@@ -28,61 +28,68 @@ module.exports = (bot) => {
   bot.hears(/^(🔗 Jeda Antar Grup|⛓️ Jeda Per Semua Grup): .+/, async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
-    
     if (ctx.message.text.startsWith('🔗 Jeda Antar Grup')) {
       ctx.session = { act: 'setdelay' };
-      await ctx.reply('Kirim jeda baru (dalam detik, contoh: 5):');
-    } else if (ctx.message.text.startsWith('⛓️ Jeda Per Semua Grup')) {
+      await ctx.reply('Masukkan jeda antar grup (detik, 1-3600):');
+    } else {
       ctx.session = { act: 'setdelayall' };
-      await ctx.reply('Kirim jeda baru (dalam menit, minimal 20 menit direkomendasikan):');
+      await ctx.reply('Masukkan jeda semua grup (menit, 1-1440, disarankan ≥20):');
     }
   });
-  
+
   bot.hears('🔄 Ganti Mode Jeda', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
-    
-    await ctx.reply('Pilih mode jeda yang ingin digunakan:', { reply_markup: jedaMenu() });
+    await ctx.reply('Pilih mode jeda:', { reply_markup: jedaMenu() });
   });
-  
+
   bot.hears('🔗 Jeda Antar Grup', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
-    
     a.delayMode = 'antar';
-    await ctx.reply('✅ Mode jeda diubah ke *Jeda Antar Grup*\n\nPengiriman pesan akan berurutan dari satu grup ke grup lainnya. Semua grup akan menerima pesan yang sama sebelum melanjutkan ke pesan berikutnya.\n\n*Cocok untuk*: Jumlah grup banyak (>10)', { 
-      parse_mode: "Markdown",
-      reply_markup: settingMenu(a) 
-    });
-  });
-  
-  bot.hears('⛓️ Jeda Per Semua Grup', async (ctx) => {
-    const a = getAcc(ctx.from.id);
-    if (!a) return ctx.reply('❌ Login dulu');
-    
-    a.delayMode = 'semua';
-    await ctx.reply('✅ Mode jeda diubah ke *Jeda Per Semua Grup*\n\nPesan akan dikirim secara bersamaan ke semua grup target dengan jeda waktu yang panjang antar pesan. Minimum jeda 20 menit direkomendasikan.\n\n*Cocok untuk*: Jumlah grup sedikit (<10)', { 
-      parse_mode: "Markdown",
-      reply_markup: settingMenu(a) 
+    await ctx.reply('✅ Mode diubah ke Jeda Antar Grup.', {
+      reply_markup: settingMenu(a)
     });
   });
 
-  bot.hears(/⏰ Tunda Mulai: \d+m/, async (ctx) => {
-    ctx.session = { act: 'setstart' };
-    await ctx.reply('Kirim waktu tunda sebelum mulai (dalam menit, contoh: 10):');
+  bot.hears('⛓️ Jeda Per Semua Grup', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    a.delayMode = 'semua';
+    await ctx.reply('✅ Mode diubah ke Jeda Semua Grup.', {
+      reply_markup: settingMenu(a)
+    });
   });
-  
-  bot.hears(/🛑 Stop Otomatis: \d+m/, async (ctx) => {
+
+  // Waktu Mulai / Stop
+  bot.hears(/🕒 Waktu Mulai:.*$/, async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    ctx.session = { act: 'setstart' };
+    await ctx.reply('Kirim Waktu Mulai (HH:MM 24 jam) atau "-" untuk hapus.\nContoh: 08:30');
+  });
+
+  bot.hears(/🛑 Waktu Stop:.*$/, async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
     ctx.session = { act: 'setstop' };
-    await ctx.reply('Kirim batas waktu auto-stop (dalam menit, contoh: 60):');
+    await ctx.reply('Kirim Waktu Stop (HH:MM 24 jam) atau "-" untuk hapus.\nContoh: 22:15');
   });
 
   bot.hears('📈 Lihat Statistik', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
     const uptime = a.stats.start ? Math.floor((Date.now() - a.stats.start) / 1000) : 0;
-    const format = s => s > 3600 ? `${Math.floor(s/3600)}j ${Math.floor(s%3600/60)}m` : s > 60 ? `${Math.floor(s/60)}m ${s%60}s` : `${s}s`;
-    const text = `📊 Status\n\n🔄 Status: ${a.running ? 'Berjalan' : 'Berhenti'}\n⏱️ Uptime: ${format(uptime)}\n✅ Terkirim: ${a.stats.sent}\n❌ Gagal: ${a.stats.failed}\n⏭️ Dilewati: ${a.stats.skip}`;
+    const fmt = s => s > 3600 ? `${Math.floor(s/3600)}j ${Math.floor(s%3600/60)}m` :
+      s > 60 ? `${Math.floor(s/60)}m ${s%60}s` : `${s}s`;
+    const text = `📊 Status
+🔄 Status: ${a.running ? 'Berjalan' : 'Berhenti'}
+🕒 Waktu Mulai: ${a.startTime || '-'}
+🛑 Waktu Stop: ${a.stopTime || '-'}
+⏱️ Uptime: ${a.stats.start ? fmt(uptime) : '-'}
+✅ Terkirim: ${a.stats.sent}
+❌ Gagal: ${a.stats.failed}
+⏭️ Dilewati: ${a.stats.skip}`;
     await ctx.reply(text, { reply_markup: new InlineKeyboard().text('🔄 Refresh', 'STAT').text('Tutup', 'delete_this') });
   });
 
@@ -90,16 +97,24 @@ module.exports = (bot) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.answerCallbackQuery('❌ Login dulu', { show_alert: true });
     const uptime = a.stats.start ? Math.floor((Date.now() - a.stats.start) / 1000) : 0;
-    const format = s => s > 3600 ? `${Math.floor(s/3600)}j ${Math.floor(s%3600/60)}m` : s > 60 ? `${Math.floor(s/60)}m ${s%60}s` : `${s}s`;
-    const text = `📊 Status\n\n🔄 Status: ${a.running ? 'Berjalan' : 'Berhenti'}\n⏱️ Uptime: ${format(uptime)}\n✅ Terkirim: ${a.stats.sent}\n❌ Gagal: ${a.stats.failed}\n⏭️ Dilewati: ${a.stats.skip}`;
+    const fmt = s => s > 3600 ? `${Math.floor(s/3600)}j ${Math.floor(s%3600/60)}m` :
+      s > 60 ? `${Math.floor(s/60)}m ${s%60}s` : `${s}s`;
+    const text = `📊 Status
+🔄 Status: ${a.running ? 'Berjalan' : 'Berhenti'}
+🕒 Waktu Mulai: ${a.startTime || '-'}
+🛑 Waktu Stop: ${a.stopTime || '-'}
+⏱️ Uptime: ${a.stats.start ? fmt(uptime) : '-'}
+✅ Terkirim: ${a.stats.sent}
+❌ Gagal: ${a.stats.failed}
+⏭️ Dilewati: ${a.stats.skip}`;
     try {
-        await ctx.editMessageText(text, { reply_markup: new InlineKeyboard().text('🔄 Refresh', 'STAT').text('Tutup', 'delete_this') });
-    } catch (e) { /* Abaikan error jika pesan tidak diubah */ }
+      await ctx.editMessageText(text, { reply_markup: new InlineKeyboard().text('🔄 Refresh', 'STAT').text('Tutup', 'delete_this') });
+    } catch {}
     await ctx.answerCallbackQuery();
   });
 
   bot.callbackQuery('delete_this', async (ctx) => {
-      await ctx.deleteMessage();
-      await ctx.answerCallbackQuery();
+    await ctx.deleteMessage();
+    await ctx.answerCallbackQuery();
   });
 };
