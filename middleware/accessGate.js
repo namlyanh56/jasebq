@@ -1,36 +1,45 @@
 const { InlineKeyboard } = require('grammy');
 const { mainMenu } = require('../utils/menu');
 
-// Daftar channel / grup yang wajib diikuti
-// Gunakan username publik (awali dengan @). Jika perlu pakai ID (misal -1001234567890) juga bisa dicampur.
+// Username / ID yang wajib diikuti
 const REQUIRED_CHATS = ['@PanoramaaStoree', '@CentralPanorama'];
 
-// Cache hasil pengecekan: Map<userId, { ok: boolean, ts: number }>
+// Cache hasil cek: userId -> { ok, ts }
 const membershipCache = new Map();
-
-// Durasi cache dalam ms
 const CACHE_TTL = 5 * 60 * 1000; // 5 menit
 
-async function checkMembership(api, userId) {
-  // Cek cache
+// Jika true: bila bot tidak punya hak (CHAT_ADMIN_REQUIRED) kita anggap sementara "lolos".
+// Set ke false untuk mode ketat.
+const ALLOW_IF_ADMIN_REQUIRED = false;
+
+function normalizeErr(e) {
+  return (e && (e.message || String(e))).toUpperCase();
+}
+
+async function checkMembership(api, userId, { force = false } = {}) {
   const now = Date.now();
-  const cached = membershipCache.get(userId);
-  if (cached && (now - cached.ts) < CACHE_TTL) {
-    return cached.ok;
+  if (!force) {
+    const cached = membershipCache.get(userId);
+    if (cached && (now - cached.ts) < CACHE_TTL) {
+      return cached.ok;
+    }
   }
 
   let ok = true;
   for (const chat of REQUIRED_CHATS) {
     try {
       const member = await api.getChatMember(chat, userId);
-      // status yang dianggap belum join
       if (['left', 'kicked', 'restricted'].includes(member.status)) {
         ok = false;
         break;
       }
     } catch (e) {
-      // Kalau gagal (misal bot tidak punya hak), kita anggap belum memenuhi
+      const em = normalizeErr(e);
       console.error('[ACCESS_GATE] getChatMember error', chat, e.message);
+      if (ALLOW_IF_ADMIN_REQUIRED && em.includes('CHAT_ADMIN_REQUIRED')) {
+        // Dianggap lolos untuk channel ini
+        continue;
+      }
       ok = false;
       break;
     }
@@ -40,64 +49,82 @@ async function checkMembership(api, userId) {
   return ok;
 }
 
-function accessGate() {
-  return async (ctx, next) => {
-    // Hanya gate chat private & pesan/command user
-    if (!ctx.from || ctx.chat?.type !== 'private') {
-      return next();
-    }
+function buildGateKeyboard() {
+  // Dua tombol JOIN DULU (masing-masing ke channel berbeda) + tombol cek ulang
+  return new InlineKeyboard()
+    .url('JOIN DULU', 'https://t.me/PanoramaaStoree')
+    .url('JOIN DULU', 'https://t.me/CentralPanorama')
+    .row()
+    .text('✅ CEK ULANG', 'recheck_access');
+}
 
-    const text = ctx.message?.text || ctx.callbackQuery?.data || '';
-    const userId = ctx.from.id;
-
-    // Command /start selalu boleh lewat agar bisa memicu tampilan awal,
-    // tapi tetap akan diblok (tidak lanjut next) kalau belum join (kita ganti respon).
-    // Handler “💡 Bantuan” juga bisa tetap terlihat.
-    const isStart = text.startsWith('/start');
-    const allowedPreJoin = isStart || text === '💡 Bantuan';
-
-    const hasAccess = await checkMembership(ctx.api, userId);
-    if (hasAccess) {
-      return next();
-    }
-
-    // Jika tidak punya akses: kirim pesan join + tombol
-    const kb = new InlineKeyboard()
-      .url('📢 Channel Panorama', 'https://t.me/PanoramaaStoree')
-      .url('💬 Central Panorama', 'https://t.me/CentralPanorama')
-      .row()
-      .text('✅ Sudah Join', 'recheck_access');
-
-    const msg =
-`🔐 *Akses Dibatasi*
+const GATE_MESSAGE = `🔐 *Akses Dibatasi*
 
 Untuk menggunakan bot ini, silakan *JOIN* dulu:
 1. @PanoramaaStoree
 2. @CentralPanorama
 
-Setelah join, tekan tombol *✅ Sudah Join* untuk verifikasi ulang.
+Setelah join, tekan tombol *✅ CEK ULANG* untuk verifikasi ulang.
 
 Jika tombol tidak muncul, ketik /start.
 
 Terima kasih!`;
 
-    // Jika ini callback, edit saja (agar tidak spam)
-    if (ctx.callbackQuery) {
-      try {
-        await ctx.editMessageText(msg, { parse_mode: 'Markdown', reply_markup: kb });
-      } catch {
-        await ctx.reply(msg, { parse_mode: 'Markdown', reply_markup: kb });
-      }
-      if (!allowedPreJoin) {
-        return; // Stop
-      }
-      return; // jangan next karena belum lolos
+function accessGate() {
+  return async (ctx, next) => {
+    if (!ctx.from || ctx.chat?.type !== 'private') return next();
+
+    const isCallback = !!ctx.callbackQuery;
+    const data = ctx.callbackQuery?.data || '';
+    const text = ctx.message?.text || '';
+    const userId = ctx.from.id;
+
+    const isStart = text.startsWith('/start');
+    const isHelp = text === '💡 Bantuan';
+    const isRecheckCallback = data === 'recheck_access';
+
+    // Jika ini callback 'recheck_access', kita biarkan handler tujuannya tetap jalan.
+    // Tapi kita akan tampilkan pesan gate lagi kalau memang masih belum join.
+    // Jadi di sini kita tunda keputusan sampai setelah cek membership.
+    const hasAccess = await checkMembership(ctx.api, userId);
+
+    if (hasAccess) {
+      return next();
     }
 
-    // Untuk message baru
-    await ctx.reply(msg, { parse_mode: 'Markdown', reply_markup: kb });
+    // Belum punya akses:
+    const kb = buildGateKeyboard();
 
-    // Jangan proses handler lain jika belum join
+    // Kalau ini callback selain 'recheck_access', tangkap dan jangan teruskan.
+    if (isCallback && !isRecheckCallback) {
+      try {
+        await ctx.editMessageText(GATE_MESSAGE, { parse_mode: 'Markdown', reply_markup: kb });
+      } catch {
+        await ctx.reply(GATE_MESSAGE, { parse_mode: 'Markdown', reply_markup: kb });
+      }
+      return;
+    }
+
+    // Jika callback 'recheck_access' tapi masih belum join → tampilkan lagi & TIDAK next
+    if (isRecheckCallback) {
+      try {
+        await ctx.editMessageText(GATE_MESSAGE, { parse_mode: 'Markdown', reply_markup: kb });
+      } catch {
+        await ctx.reply(GATE_MESSAGE, { parse_mode: 'Markdown', reply_markup: kb });
+      }
+      // Handler recheck_access di index.js akan tetap dipanggil (karena kita tidak return di sini)?
+      // Kita sengaja RETURN agar handler khusus recheck yang lama tidak override lagi.
+      return;
+    }
+
+    // Jika message biasa /start / bantuan, tetap kirim gate message
+    if (isStart || isHelp) {
+      await ctx.reply(GATE_MESSAGE, { parse_mode: 'Markdown', reply_markup: kb });
+      return;
+    }
+
+    // Pesan biasa lainnya — blok dan kirim gate
+    await ctx.reply(GATE_MESSAGE, { parse_mode: 'Markdown', reply_markup: kb });
     return;
   };
 }
