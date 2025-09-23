@@ -28,8 +28,8 @@ function buildStatsText(ctx, a) {
   // HILANGKAN underscore yang bikin Markdown error
   return `🏷 UserID : ${userId}
 
-⏳ *Delay*  : ${delayStr}
 ⏰ *Timer*  : (Start - ${startStr}) (Stop - ${stopStr})
+⏳ *Delay*  : ${delayStr}
 🎄 *Grup*   : ${grupCount}
 🧩 *List*   : ${msgCount}
 👥 *Akun*   : ${akunCount}
@@ -60,7 +60,10 @@ module.exports = (bot) => {
   bot.hears('⚙️ Settings', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
-    await ctx.reply('⚙️ Pengaturan', { reply_markup: settingMenu(a) });
+    await ctx.reply('Silakan pilih menu *Jeda*, *Timer Mulai*, atau *Timer Stop*.
+⚠️ Tips: Pakai jeda panjang biar lebih aman dan minim risiko.
+
+_Butuh bantuan? _👉 @JaeHype', { reply_markup: settingMenu(a) });
   });
 
   bot.hears(/^(🔗 Jeda Antar Grup|⛓️ Jeda Per Semua Grup): .+/, async (ctx) => {
@@ -68,17 +71,27 @@ module.exports = (bot) => {
     if (!a) return ctx.reply('❌ Login dulu');
     if (ctx.message.text.startsWith('🔗 Jeda Antar Grup')) {
       ctx.session = { act: 'setdelay' };
-      await ctx.reply('Masukkan jeda antar grup (detik, 1-3600):');
+      await ctx.reply('*Jeda antar grup: 1–3600 detik*
+👉_Hindari jeda terlalu pendek agar lebih aman_.:');
     } else {
       ctx.session = { act: 'setdelayall' };
-      await ctx.reply('Masukkan jeda semua grup (menit, 1-1440, disarankan ≥20):');
+      await ctx.reply('*Masukkan jeda (menit): 1–1440*
+👉 _Rekomendasi: gunakan ≥20 menit jika broadcast/spam seharian._):');
     }
   });
 
   bot.hears('🔄 Ganti Mode Jeda', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
-    await ctx.reply('Pilih mode jeda:', { reply_markup: jedaMenu() });
+    await ctx.reply('*Silakan pilih mode jeda* ⏳
+
+*Jeda antar grup*: merupakan jeda yang digunakan ketika mengirim pesan broadcast dari grup 1 ke grup 2 dan seterusnya.
+Jeda ini dalam hitungan detik.                                                                               
+*Jeda per semua grup*: merupakan jeda yang diambil setelah mengirim pesan broadcast langsung ke semua grup.
+
+⚠️* Selalu hindari jeda pendek; apapun mode yang dipilih, penggunaan jeda pendek tidak aman.*
+
+❓_ Butuh bantuan? Hubungi: @JaeHype_', { reply_markup: jedaMenu() });
   });
 
   bot.hears('🔗 Jeda Antar Grup', async (ctx) => {
@@ -99,14 +112,14 @@ module.exports = (bot) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
     ctx.session = { act: 'setstart' };
-    await ctx.reply('Kirim Waktu Mulai (HH:MM) atau "-" untuk hapus.');
+    await ctx.reply('Kirim waktu mulai Userbot (*contoh: 14:30*) atau ketik "-" kalau mau hapus jam mulai.');
   });
 
   bot.hears(/🕝 Waktu Stop:.*$/, async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
     ctx.session = { act: 'setstop' };
-    await ctx.reply('Kirim Waktu Stop (HH:MM) atau "-" untuk hapus.');
+    await ctx.reply('Kirim waktu stop Userbot (*contoh: 14:30*) atau ketik "-" kalau mau hapus jam mulai.');
   });
 
   bot.hears('📈 Lihat Statistik', async (ctx) => {
@@ -141,4 +154,5 @@ module.exports = (bot) => {
     await ctx.answerCallbackQuery();
   });
 };
+
 
