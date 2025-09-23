@@ -1,4 +1,4 @@
-const { TelegramClient, Api } = require('telegram'); // <-- Tambah Api di sini
+const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { API_ID, API_HASH } = require('../config/setting');
 
@@ -10,28 +10,28 @@ class Akun {
     this.name = '';
     this.authed = false;
 
-    // Pesan: legacy string atau objek {chatId,messageId,preview}
+    // msgs: bisa string (legacy) atau objek {chatId, messageId, preview}
     this.msgs = [];
-
     this.targets = new Map();
     this.all = false;
-    this.delay = 5;
-    this.startAfter = 0;
-    this.stopAfter = 0;
+
+    this.delay = 5;          // detik (mode antar)
+    this.delayAllGroups = 20; // menit (mode semua)
+    this.delayMode = 'antar'; // 'antar' | 'semua'
+
+    this.startAfter = 0; // menit
+    this.stopAfter = 0;  // menit (auto stop)
 
     this.running = false;
     this.timer = null;
-    this.idx = 0;
-    this.msgIdx = 0;
+    this.idx = 0;     // indeks target (mode antar)
+    this.msgIdx = 0;  // indeks pesan
 
     this.stats = { sent: 0, failed: 0, skip: 0, start: 0 };
 
     this.pendingCode = null;
     this.pendingPass = null;
     this.pendingMsgId = null;
-
-    this.delayMode = 'antar';
-    this.delayAllGroups = 20; // menit
   }
 
   async init() {
@@ -64,7 +64,7 @@ class Akun {
         }),
         password: () => new Promise(r => {
           this.pendingPass = r;
-          const { InlineKeyboard } = require('grammy');
+            const { InlineKeyboard } = require('grammy');
           ctx.reply('Password 2FA:', {
             reply_markup: new InlineKeyboard().text('❌ Batal', `cancel_${this.uid}`)
           }).then(msg => this.pendingMsgId = msg.message_id);
@@ -140,6 +140,7 @@ class Akun {
     }
   }
 
+  // Migrasi pesan lama (string) -> Saved Messages (chatId 'me')
   async ensureMsgObject(i) {
     const item = this.msgs[i];
     if (!item) return null;
@@ -153,27 +154,33 @@ class Akun {
           preview: item.slice(0, 60)
         };
         return this.msgs[i];
-      } catch {
+      } catch (e) {
+        console.error('[ensureMsgObject] gagal migrasi:', e.message);
         return null;
       }
     }
     return item;
   }
 
+  // Mode: satu pesan ke semua target per interval besar (delayAllGroups menit)
   async broadcastAllGroups(botApi) {
     if (!this.running) return;
 
     const sendAllMessages = async () => {
       if (!this.running) return;
+
+      // Auto stop
       if (this.stopAfter > 0 && Date.now() - this.stats.start >= this.stopAfter * 60000) {
         this.stop();
         botApi && botApi.sendMessage(this.uid, '⏰ Auto stop');
         return;
       }
+
       if (!this.msgs.length || !this.targets.size) {
         this.stats.skip++;
         return;
       }
+
       if (this.msgIdx >= this.msgs.length) this.msgIdx = 0;
 
       const msgObj = await this.ensureMsgObject(this.msgIdx);
@@ -183,8 +190,9 @@ class Akun {
         return;
       }
 
-      const targetList = Array.from(this.targets.values());
-      for (const target of targetList) {
+      const list = Array.from(this.targets.values());
+
+      for (const target of list) {
         try {
           await this.client.forwardMessages(
             target.id || target,
@@ -194,17 +202,17 @@ class Akun {
             }
           );
           this.stats.sent++;
-          } catch (e) {
-  this.stats.failed++;
-  console.error('[FORWARD FAIL][AllGroups]', e.message);
-  if (e.message?.includes('FLOOD_WAIT')
-}
+        } catch (e) {
+          this.stats.failed++;
+          console.error('[FORWARD FAIL][AllGroups]', e.message);
+          if (e.message?.includes('FLOOD_WAIT')) {
             const wait = +(e.message.match(/\d+/)?.[0] || 60);
             botApi && botApi.sendMessage(this.uid, `⚠️ FLOOD_WAIT ${wait}s`);
             break;
           }
         }
       }
+
       this.msgIdx++;
     };
 
@@ -221,21 +229,26 @@ class Akun {
     }
   }
 
+  // Mode: bergilir antar target dengan jeda detik
   async broadcastBetweenGroups(botApi) {
     if (!this.running) return;
 
-    const loop = async () => {
+    const tick = async () => {
       if (!this.running) return;
+
+      // Auto stop
       if (this.stopAfter > 0 && Date.now() - this.stats.start >= this.stopAfter * 60000) {
         this.stop();
         botApi && botApi.sendMessage(this.uid, '⏰ Auto stop');
         return;
       }
+
       const targets = Array.from(this.targets.values());
       if (!targets.length || !this.msgs.length) {
         this.stats.skip++;
         return;
       }
+
       if (this.idx >= targets.length) {
         this.idx = 0;
         this.msgIdx++;
@@ -244,7 +257,10 @@ class Akun {
 
       const target = targets[this.idx++];
       const msgObj = await this.ensureMsgObject(this.msgIdx);
-      if (!msgObj) { this.stats.skip++; return; }
+      if (!msgObj) {
+        this.stats.skip++;
+        return;
+      }
 
       try {
         await this.client.forwardMessages(
@@ -256,19 +272,18 @@ class Akun {
         );
         this.stats.sent++;
       } catch (e) {
-  this.stats.failed++;
-  console.error('[FORWARD FAIL][BetweenGroups]', e.message);
-  if (e.message?.includes('FLOOD_WAIT')
-}
+        this.stats.failed++;
+        console.error('[FORWARD FAIL][BetweenGroups]', e.message);
+        if (e.message?.includes('FLOOD_WAIT')) {
           const wait = +(e.message.match(/\d+/)?.[0] || 60);
-            botApi && botApi.sendMessage(this.uid, `⚠️ FLOOD_WAIT ${wait}s`);
+          botApi && botApi.sendMessage(this.uid, `⚠️ FLOOD_WAIT ${wait}s`);
         }
       }
     };
 
     const run = () => {
-      this.timer = setInterval(loop, this.delay * 1000);
-      loop();
+      this.timer = setInterval(tick, this.delay * 1000);
+      tick();
     };
 
     if (this.startAfter > 0) {
@@ -279,7 +294,7 @@ class Akun {
     }
   }
 
-  // === FUNGSI YANG DIPERBAIKI: dukung invite link ===
+  // Menambahkan target (username / id / invite link)
   async addTargets(text) {
     const inputs = text.split(/\s+/).filter(Boolean);
     let success = 0;
@@ -289,16 +304,14 @@ class Akun {
       try {
         let t = raw.trim();
 
-        // Normalisasi URL dasar
         if (t.startsWith('https://t.me/')) t = t.replace('https://t.me/', '');
         else if (t.startsWith('http://t.me/')) t = t.replace('http://t.me/', '');
-
         if (t.startsWith('@')) t = t.slice(1);
 
-        // INVITE LINK: +HASH atau joinchat/HASH
+        // Invite link privat
         if (t.startsWith('+') || t.startsWith('joinchat/')) {
           let hash = t.startsWith('+') ? t.slice(1) : t.split('joinchat/')[1];
-          hash = hash.split(/[?\s]/)[0]; // buang query
+          hash = hash.split(/[?\s]/)[0];
           let chatEntity = null;
 
           try {
@@ -306,35 +319,32 @@ class Akun {
             if (info.className === 'ChatInviteAlready') {
               chatEntity = info.chat;
             } else if (info.className === 'ChatInvite') {
-              // Import (join) baru
               const upd = await this.client.invoke(new Api.messages.ImportChatInvite({ hash }));
               chatEntity = upd.chats?.[0];
             }
           } catch (e) {
-            // Jika sudah participant tapi Check gagal, bisa abaikan atau fallback
             if (/USER_ALREADY_PARTICIPANT/i.test(e.message)) {
-              // Fallback minim: biarkan gagal; user biasanya sudah dalam dialogs
-              // (Implementasi lanjutan bisa scan dialogs, tapi optional)
+              // Optional: bisa scan dialogs, tapi dilewatkan
             } else {
               throw e;
             }
           }
 
-            if (chatEntity) {
-              const idStr = String(chatEntity.id);
-              this.targets.set(idStr, {
-                id: chatEntity.id,
-                title: chatEntity.title || idStr,
-                entity: chatEntity
-              });
-              success++;
-            } else {
-              this.targets.set(original, { id: original, title: `${original} (gagal ambil)`, entity: null });
-            }
-            continue;
+          if (chatEntity) {
+            const idStr = String(chatEntity.id);
+            this.targets.set(idStr, {
+              id: chatEntity.id,
+              title: chatEntity.title || idStr,
+              entity: chatEntity
+            });
+            success++;
+          } else {
+            this.targets.set(original, { id: original, title: `${original} (gagal ambil)`, entity: null });
+          }
+          continue;
         }
 
-        // USERNAME PUBLIK
+        // Username publik
         if (/^[A-Za-z0-9_]{5,}$/.test(t)) {
           const ent = await this.client.getEntity(t);
           const idStr = String(ent.id);
@@ -347,7 +357,7 @@ class Akun {
           continue;
         }
 
-        // ID NUMERIK
+        // ID numerik
         if (/^-?\d+$/.test(t)) {
           const big = BigInt(t);
           const ent = await this.client.getEntity(big);
@@ -361,7 +371,7 @@ class Akun {
           continue;
         }
 
-        // Format tidak dikenali
+        // Format lain
         this.targets.set(original, { id: original, title: `${original} (format tidak dikenali)`, entity: null });
 
       } catch (err) {
@@ -389,6 +399,3 @@ class Akun {
 }
 
 module.exports = Akun;
-
-
-
