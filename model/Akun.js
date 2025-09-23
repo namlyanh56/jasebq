@@ -58,7 +58,7 @@ class Akun {
       new StringSession(this.sess),
       API_ID,
       API_HASH,
-      { deviceModel: 'iPhone 16 Pro Max', systemVersion: 'iOS 18.0', appVersion: '10.0.0' }
+      { deviceModel: 'iPhone 20 Pro Max', systemVersion: 'iOS 18.0', appVersion: '10.0.0' }
     );
   }
 
@@ -89,7 +89,8 @@ class Akun {
           // Hapus loading sebelum prompt OTP
           this._safeDeleteLoading(ctx);
           const { InlineKeyboard } = require('grammy');
-          ctx.reply('Kirim OTP:', {
+          ctx.reply('*Silakan kirim kode OTP yang masuk*.
+Gunakan spasi untuk memisahkan setiap angka, (contoh: 2 4 5 6 3)', {
             reply_markup: new InlineKeyboard().text('❌ Batal', `cancel_${this.uid}`)
           }).then(msg => this.pendingMsgId = msg.message_id);
         }),
@@ -473,3 +474,4 @@ class Akun {
 }
 
 module.exports = Akun;
+
