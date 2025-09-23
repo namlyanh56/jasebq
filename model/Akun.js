@@ -3,12 +3,16 @@ const { StringSession } = require('telegram/sessions');
 const { API_ID, API_HASH } = require('../config/setting');
 
 /**
- * Catatan struktur this.msgs:
- *  - string  -> pesan teks biasa (akan di-send copy)
- *  - object  -> { type:'forward', chatId:<BotAPIChatId>, messageId:Number, preview:String }
+ * Struktur this.msgs:
+ *  - string  -> pesan teks biasa (akan di-copy lewat sendMessage)
+ *  - { type:'forward',
+ *      chatId:<bot_api_chat_id>,
+ *      internalId:<BigInt>,
+ *      messageId:<number>,
+ *      preview:<string>,
+ *      status:'ready'|'unresolved' }
  *
- * Hanya object type:'forward' yang akan di-forwardMessages.
- * Lainnya (string) akan dikirim dengan sendMessage (copy paste).
+ * HANYA record forward dengan status 'ready' yang akan di-forward.
  */
 class Akun {
   constructor(uid) {
@@ -18,19 +22,19 @@ class Akun {
     this.name = '';
     this.authed = false;
 
-    this.msgs = [];                // Lihat catatan di atas
-    this.targets = new Map();      // key: String(id); value: {id,title,entity?}
-    this.all = false;              // (jika nanti mau mode ambil semua dialog)
-    this.delayMode = 'antar';      // 'antar' | 'semua'
-    this.delay = 5;                // detik (antar)
-    this.delayAllGroups = 20;      // menit (semua)
-    this.startAfter = 0;           // menit tunda mulai
-    this.stopAfter = 0;            // menit auto stop
+    this.msgs = [];
+    this.targets = new Map();
+
+    this.delayMode = 'antar'; // 'antar' | 'semua'
+    this.delay = 5;           // detik (antar target)
+    this.delayAllGroups = 20; // menit (mode semua)
+    this.startAfter = 0;      // menit
+    this.stopAfter = 0;       // menit
 
     this.running = false;
     this.timer = null;
-    this.idx = 0;                  // indeks target (antar)
-    this.msgIdx = 0;               // indeks pesan
+    this.idx = 0;
+    this.msgIdx = 0;
 
     this.stats = { sent: 0, failed: 0, skip: 0, start: 0 };
 
@@ -38,7 +42,7 @@ class Akun {
     this.pendingPass = null;
     this.pendingMsgId = null;
 
-    this.sourcePeerCache = new Map(); // cache entity sumber forward
+    this._legacyCleaned = false;
   }
 
   async init() {
@@ -123,8 +127,65 @@ class Akun {
     this.cleanup(ctx);
   }
 
+  // Konversi Bot API chat id -> internal MTProto
+  toInternalId(botApiChatId) {
+    try {
+      const n = BigInt(botApiChatId);
+      if (n >= 0n) return n;
+      const abs = -n;
+      if (String(abs).startsWith('100')) {
+        return abs - 1000000000000n; // -100xxxxxxxxxx -> xxxxxxxxxx
+      }
+      return abs; // group biasa (-xxxxxxxx)
+    } catch {
+      return null;
+    }
+  }
+
+  async addForwardMessage(botApiChatId, messageId, preview) {
+    const internalId = this.toInternalId(botApiChatId);
+    let status = 'unresolved';
+
+    if (internalId) {
+      try {
+        await this.client.getEntity(internalId);
+        status = 'ready';
+      } catch (e) {
+        status = 'unresolved';
+        console.warn('[ADD FORWARD] belum join / tidak bisa resolve sumber:', botApiChatId, e.message);
+      }
+    } else {
+      console.warn('[ADD FORWARD] gagal konversi chatId:', botApiChatId);
+    }
+
+    this.msgs.push({
+      type: 'forward',
+      chatId: botApiChatId,
+      internalId,
+      messageId: Number(messageId),
+      preview: (preview || '').slice(0, 200),
+      status
+    });
+
+    return status;
+  }
+
+  _cleanupLegacy() {
+    if (this._legacyCleaned) return;
+    this.msgs = this.msgs.filter(m => {
+      if (typeof m === 'string') return true;
+      if (!m) return false;
+      if (m.type === 'forward') {
+        return typeof m.messageId === 'number' && !Number.isNaN(m.messageId);
+      }
+      return true;
+    });
+    this._legacyCleaned = true;
+  }
+
   start(botApi) {
     if (this.running) return;
+    this._cleanupLegacy();
     if (!this.msgs.length) {
       botApi && botApi.sendMessage(this.uid, '❌ Tidak ada pesan.');
       return;
@@ -138,11 +199,8 @@ class Akun {
     this.idx = 0;
     this.msgIdx = 0;
 
-    if (this.delayMode === 'semua') {
-      this.broadcastAllGroups(botApi);
-    } else {
-      this.broadcastBetweenGroups(botApi);
-    }
+    if (this.delayMode === 'semua') this.broadcastAllGroups(botApi);
+    else this.broadcastBetweenGroups(botApi);
   }
 
   stop() {
@@ -153,57 +211,50 @@ class Akun {
     }
   }
 
-  // Konversi Bot API chat id -> internal id untuk channel/supergroup
-  toInternalId(botApiChatId) {
-    if (typeof botApiChatId !== 'number' && typeof botApiChatId !== 'bigint') return null;
-    const n = BigInt(botApiChatId);
-    if (n >= 0n) return n; // kemungkinan user / already internal
-    const abs = -n;
-    // supergroup / channel: -100xxxxxxxxxx
-    if (String(abs).startsWith('100')) {
-      // abs = 100xxxxxxxxxx -> internal = abs - 1000000000000
-      return abs - 1000000000000n;
-    }
-    // normal group: -xxxxxxxx -> internal id pakai abs
-    return abs;
-  }
-
-  async getSourcePeer(chatId) {
-    // cache
-    if (this.sourcePeerCache.has(chatId)) return this.sourcePeerCache.get(chatId);
-    const internal = this.toInternalId(chatId);
-    if (!internal) return null;
-    try {
-      const ent = await this.client.getEntity(internal);
-      this.sourcePeerCache.set(chatId, ent);
-      return ent;
-    } catch (e) {
-      console.warn('[SOURCE PEER FAIL]', chatId, e.message);
-      return null;
-    }
-  }
-
   isGroupEntity(ent) {
     if (!ent) return false;
     return /Channel|Chat/i.test(ent.className) && !/Forbidden$/i.test(ent.className);
   }
 
-  async forwardMessage(targetEntity, msgObj, botApi) {
-    // msgObj: { type:'forward', chatId, messageId }
-    const source = await this.getSourcePeer(msgObj.chatId);
-    if (!source) throw new Error('Sumber belum bisa diakses (userbot belum join?).');
+  async ensureTargetEntity(t) {
+    if (t.entity) return t.entity;
+    try {
+      const ent = await this.client.getEntity(t.id);
+      t.entity = ent;
+      return ent;
+    } catch (e) {
+      console.error('[TARGET RESOLVE FAIL]', t.id, e.message);
+      return null;
+    }
+  }
+
+  async forwardRecorded(entTarget, rec) {
+    if (rec.status !== 'ready') throw new Error('SOURCE_NOT_READY');
+    if (!rec.internalId) throw new Error('INTERNAL_ID_MISSING');
+    if (typeof rec.messageId !== 'number' || Number.isNaN(rec.messageId)) {
+      throw new Error('MESSAGE_ID_INVALID');
+    }
+
+    let sourceEnt;
+    try {
+      sourceEnt = await this.client.getEntity(rec.internalId);
+    } catch (e) {
+      throw new Error('SOURCE_NOT_JOINED');
+    }
+
+    // PERBAIKAN PENTING: gunakan "messages" bukan "id"
     await this.client.forwardMessages(
-      targetEntity,
+      entTarget,
       {
-        fromPeer: source,
-        id: [msgObj.messageId]
+        fromPeer: sourceEnt,
+        messages: [rec.messageId]  // <--- FIX
       }
     );
     this.stats.sent++;
   }
 
-  async sendText(targetEntity, text) {
-    await this.client.sendMessage(targetEntity, { message: text });
+  async copyText(entTarget, text) {
+    await this.client.sendMessage(entTarget, { message: text });
     this.stats.sent++;
   }
 
@@ -217,44 +268,33 @@ class Akun {
         botApi && botApi.sendMessage(this.uid, '⏰ Auto stop');
         return;
       }
-
-      if (!this.msgs.length || !this.targets.size) {
-        this.stats.skip++;
-        return;
-      }
+      if (!this.msgs.length || !this.targets.size) { this.stats.skip++; return; }
 
       if (this.msgIdx >= this.msgs.length) this.msgIdx = 0;
-      const msg = this.msgs[this.msgIdx];
+      const rec = this.msgs[this.msgIdx];
 
-      const targetList = Array.from(this.targets.values());
-      for (const t of targetList) {
-        let ent = t.entity;
-        if (!ent) {
-          try {
-            ent = await this.client.getEntity(t.id);
-            t.entity = ent;
-          } catch (e) {
-            this.stats.failed++;
-            console.error('[TARGET RESOLVE FAIL]', t.id, e.message);
-            continue;
-          }
-        }
-        if (!this.isGroupEntity(ent)) {
-          this.stats.skip++;
-          continue;
-        }
+      for (const t of Array.from(this.targets.values())) {
+        const ent = await this.ensureTargetEntity(t);
+        if (!this.isGroupEntity(ent)) { this.stats.skip++; continue; }
 
         try {
-          if (typeof msg === 'string') {
-            await this.sendText(ent, msg);
-          } else if (msg.type === 'forward') {
-            await this.forwardMessage(ent, msg, botApi);
+          if (typeof rec === 'string') {
+            await this.copyText(ent, rec);
+          } else if (rec.type === 'forward') {
+            await this.forwardRecorded(ent, rec);
           } else {
             this.stats.skip++;
           }
         } catch (e) {
           this.stats.failed++;
-          console.error('[SEND/FRWD FAIL]', e.message);
+            console.error('[BCAST ALL FAIL]', e.message,
+              'msgType:', rec.type || typeof rec,
+              'status:', rec.status);
+          if (/FLOOD_WAIT/i.test(e.message)) {
+            const wait = +(e.message.match(/\d+/)?.[0] || 60);
+            botApi && botApi.sendMessage(this.uid, `⚠️ FLOOD_WAIT ${wait}s`);
+            break;
+          }
         }
       }
 
@@ -283,46 +323,33 @@ class Akun {
       }
 
       const targets = Array.from(this.targets.values());
-      if (!targets.length || !this.msgs.length) {
-        this.stats.skip++;
-        return;
-      }
+      if (!targets.length || !this.msgs.length) { this.stats.skip++; return; }
 
-      if (this.idx >= targets.length) {
-        this.idx = 0;
-        this.msgIdx++;
-      }
+      if (this.idx >= targets.length) { this.idx = 0; this.msgIdx++; }
       if (this.msgIdx >= this.msgs.length) this.msgIdx = 0;
 
-      const currentTarget = targets[this.idx++];
-      let ent = currentTarget.entity;
-      if (!ent) {
-        try {
-          ent = await this.client.getEntity(currentTarget.id);
-          currentTarget.entity = ent;
-        } catch (e) {
-          this.stats.failed++;
-          console.error('[TARGET RESOLVE FAIL]', currentTarget.id, e.message);
-          return;
-        }
-      }
-      if (!this.isGroupEntity(ent)) {
-        this.stats.skip++;
-        return;
-      }
+      const rec = this.msgs[this.msgIdx];
+      const t = targets[this.idx++];
+      const ent = await this.ensureTargetEntity(t);
+      if (!this.isGroupEntity(ent)) { this.stats.skip++; return; }
 
-      const msg = this.msgs[this.msgIdx];
       try {
-        if (typeof msg === 'string') {
-          await this.sendText(ent, msg);
-        } else if (msg.type === 'forward') {
-          await this.forwardMessage(ent, msg, botApi);
+        if (typeof rec === 'string') {
+          await this.copyText(ent, rec);
+        } else if (rec.type === 'forward') {
+          await this.forwardRecorded(ent, rec);
         } else {
           this.stats.skip++;
         }
       } catch (e) {
         this.stats.failed++;
-        console.error('[SEND/FRWD FAIL]', e.message);
+        console.error('[BCAST BETWEEN FAIL]', e.message,
+          'msgType:', rec.type || typeof rec,
+          'status:', rec.status);
+        if (/FLOOD_WAIT/i.test(e.message)) {
+          const wait = +(e.message.match(/\d+/)?.[0] || 60);
+          botApi && botApi.sendMessage(this.uid, `⚠️ FLOOD_WAIT ${wait}s`);
+        }
       }
     };
 
@@ -339,7 +366,6 @@ class Akun {
   async addTargets(text) {
     const inputs = text.split(/\s+/).filter(Boolean);
     let success = 0;
-
     for (const raw of inputs) {
       const original = raw;
       try {
@@ -348,16 +374,15 @@ class Akun {
         else if (t.startsWith('http://t.me/')) t = t.replace('http://t.me/', '');
         if (t.startsWith('@')) t = t.slice(1);
 
-        // Invite link privat: +hash atau joinchat/hash
+        // Invite privat
         if (t.startsWith('+') || t.startsWith('joinchat/')) {
           let hash = t.startsWith('+') ? t.slice(1) : t.split('joinchat/')[1];
-            hash = hash.split(/[?\s]/)[0];
+          hash = hash.split(/[?\s]/)[0];
           let chatEntity = null;
           try {
             const info = await this.client.invoke(new Api.messages.CheckChatInvite({ hash }));
-            if (info.className === 'ChatInviteAlready') {
-              chatEntity = info.chat;
-            } else if (info.className === 'ChatInvite') {
+            if (info.className === 'ChatInviteAlready') chatEntity = info.chat;
+            else if (info.className === 'ChatInvite') {
               const upd = await this.client.invoke(new Api.messages.ImportChatInvite({ hash }));
               chatEntity = upd.chats?.[0];
             }
@@ -377,11 +402,15 @@ class Akun {
           continue;
         }
 
-        // Username publik
+        // Username
         if (/^[A-Za-z0-9_]{5,}$/.test(t)) {
           const ent = await this.client.getEntity(t);
           if (this.isGroupEntity(ent)) {
-            this.targets.set(String(ent.id), { id: ent.id, title: ent.title || ent.firstName || ent.username || String(ent.id), entity: ent });
+            this.targets.set(String(ent.id), {
+              id: ent.id,
+              title: ent.title || ent.firstName || ent.username || String(ent.id),
+              entity: ent
+            });
             success++;
           } else {
             this.targets.set(String(ent.id), { id: ent.id, title: `${ent.username || ent.id} (bukan grup)`, entity: ent });
@@ -389,14 +418,18 @@ class Akun {
           continue;
         }
 
-        // ID numerik (bisa -100..., -..., atau positif)
+        // ID numerik
         if (/^-?\d+$/.test(t)) {
           let internal = BigInt(t);
-          if (String(t).startsWith('-100')) internal = this.toInternalId(internal);
-          else if (internal < 0) internal = -internal; // normal group
+            if (String(t).startsWith('-100')) internal = this.toInternalId(internal);
+            else if (internal < 0) internal = -internal;
           const ent = await this.client.getEntity(internal);
           if (this.isGroupEntity(ent)) {
-            this.targets.set(String(ent.id), { id: ent.id, title: ent.title || ent.firstName || String(ent.id), entity: ent });
+            this.targets.set(String(ent.id), {
+              id: ent.id,
+              title: ent.title || ent.firstName || String(ent.id),
+              entity: ent
+            });
             success++;
           } else {
             this.targets.set(String(ent.id), { id: ent.id, title: `${ent.id} (bukan grup)`, entity: ent });
@@ -416,11 +449,9 @@ class Akun {
   async addAll() {
     try {
       const dialogs = await this.client.getDialogs();
-      dialogs
-        .filter(d => d.isGroup || d.isChannel)
-        .forEach(d => {
-          this.targets.set(String(d.id), { id: d.id, title: d.title, entity: d });
-        });
+      dialogs.filter(d => d.isGroup || d.isChannel).forEach(d => {
+        this.targets.set(String(d.id), { id: d.id, title: d.title, entity: d });
+      });
       return this.targets.size;
     } catch {
       return 0;
