@@ -17,27 +17,27 @@ class Akun {
     this.targets = new Map();
     this.all = false;
 
-    // MODE JEDA (tetap dipertahankan)
-    this.delayMode = 'antar';   // 'antar' | 'semua'
-    this.delay = 5;             // detik antar target
-    this.delayAllGroups = 20;   // menit antar “batch semua grup”
+    // MODE JEDA
+    this.delayMode = 'antar';
+    this.delay = 5;
+    this.delayAllGroups = 20;
 
-    // (Legacy, tidak dipakai lagi di UI – dibiarkan agar tidak rusak)
-    this.startAfter = 0;        // menit (legacy)
-    this.stopAfter = 0;         // menit (legacy)
+    // Legacy
+    this.startAfter = 0;
+    this.stopAfter = 0;
 
-    // Waktu Mulai & Stop (fitur baru, HH:MM atau null)
-    this.startTime = null;      // string 'HH:MM' atau null
-    this.stopTime = null;       // string 'HH:MM' atau null
-    this.stopTimestamp = null;  // number (ms)
+    // Waktu Mulai & Stop
+    this.startTime = null;
+    this.stopTime = null;
+    this.stopTimestamp = null;
     this._startTimer = null;
     this._stopTimer = null;
 
     // Status runtime
     this.running = false;
     this.timer = null;
-    this.idx = 0;      // index target (mode antar)
-    this.msgIdx = 0;   // index pesan
+    this.idx = 0;
+    this.msgIdx = 0;
 
     this.stats = { sent: 0, failed: 0, skip: 0, start: 0 };
 
@@ -49,8 +49,7 @@ class Akun {
     // Cache sumber forward
     this._sourceCache = new Map();
 
-    // Loading message (ephemeral)
-    this.loadingMsgId = null; // ADD
+    this.loadingMsgId = null;
   }
 
   async init() {
@@ -70,7 +69,6 @@ class Akun {
   }
 
   async login(ctx, phone) {
-    // Tampilkan pesan loading
     try {
       const loading = await ctx.reply('⏳ *Tunggu sebentar...*', { parse_mode: 'Markdown' });
       this.loadingMsgId = loading.message_id;
@@ -86,24 +84,24 @@ class Akun {
         phoneNumber: () => phone,
         phoneCode: () => new Promise(r => {
           this.pendingCode = r;
-          // Hapus loading sebelum prompt OTP
           this._safeDeleteLoading(ctx);
           const { InlineKeyboard } = require('grammy');
           ctx.reply(
             `*Silakan kirim kode OTP yang masuk*.
 Gunakan spasi untuk memisahkan setiap angka (contoh: 2 4 5 6 3)`,
             {
-            reply_markup: new InlineKeyboard().text('❌ Batal', `cancel_${this.uid}`)
-          }).then(msg => this.pendingMsgId = msg.message_id);
+              parse_mode: 'Markdown',
+              reply_markup: new InlineKeyboard().text('❌ Batal', `cancel_${this.uid}`)
+            }
+          ).then(msg => this.pendingMsgId = msg.message_id);
         }),
         password: () => new Promise(r => {
           this.pendingPass = r;
-          // Hapus loading sebelum prompt password
-          this._safeDeleteLoading(ctx);
-          const { InlineKeyboard } = require('grammy');
-          ctx.reply('Password 2FA:', {
-            reply_markup: new InlineKeyboard().text('❌ Batal', `cancel_${this.uid}`)
-          }).then(msg => this.pendingMsgId = msg.message_id);
+            this._safeDeleteLoading(ctx);
+            const { InlineKeyboard } = require('grammy');
+            ctx.reply('Password 2FA:', {
+              reply_markup: new InlineKeyboard().text('❌ Batal', `cancel_${this.uid}`)
+            }).then(msg => this.pendingMsgId = msg.message_id);
         }),
         onError: e => ctx.reply(`Error: ${e.message}`)
       });
@@ -286,11 +284,11 @@ Gunakan spasi untuk memisahkan setiap angka (contoh: 2 4 5 6 3)`,
           this.stats.sent++;
         } catch (e2) {
           this.stats.failed++;
-          console.error(`[${tag}] FALLBACK_COPY_FAIL`, e2.message);
-          if (/FLOOD_WAIT/i.test(e.message) || /FLOOD_WAIT/i.test(e2.message)) {
-            const wait = +(e.message.match(/\d+/)?.[0] || e2.message.match(/\d+/)?.[0] || 60);
-            botApi && botApi.sendMessage(this.uid, `⚠️ FLOOD_WAIT ${wait}s`);
-          }
+            console.error(`[${tag}] FALLBACK_COPY_FAIL`, e2.message);
+            if (/FLOOD_WAIT/i.test(e.message) || /FLOOD_WAIT/i.test(e2.message)) {
+              const wait = +(e.message.match(/\d+/)?.[0] || e2.message.match(/\d+/)?.[0] || 60);
+              botApi && botApi.sendMessage(this.uid, `⚠️ FLOOD_WAIT ${wait}s`);
+            }
         }
       }
       return;
@@ -403,7 +401,6 @@ Gunakan spasi untuk memisahkan setiap angka (contoh: 2 4 5 6 3)`,
         if (t.startsWith('https://t.me/')) t = t.replace('https://t.me/', '');
         if (t.startsWith('@')) t = t.slice(1);
 
-        // Invite link privat
         if (t.startsWith('+') || t.startsWith('joinchat/')) {
           let hash = t.startsWith('+') ? t.slice(1) : t.split('joinchat/')[1];
           hash = hash.split('?')[0];
@@ -433,16 +430,14 @@ Gunakan spasi untuk memisahkan setiap angka (contoh: 2 4 5 6 3)`,
           continue;
         }
 
-        // Username publik
         if (/^[A-Za-z0-9_]{5,}$/.test(t)) {
           const ent = await this.client.getEntity(t);
-          const idStr = String(ent.id);
-          this.targets.set(idStr, { id: ent.id, title: ent.title || ent.firstName || ent.username || idStr, entity: ent });
-          success++;
+            const idStr = String(ent.id);
+            this.targets.set(idStr, { id: ent.id, title: ent.title || ent.firstName || ent.username || idStr, entity: ent });
+            success++;
           continue;
         }
 
-        // ID numerik
         if (/^-?\d+$/.test(t)) {
           const big = BigInt(t);
           const ent = await this.client.getEntity(big);
@@ -476,7 +471,3 @@ Gunakan spasi untuk memisahkan setiap angka (contoh: 2 4 5 6 3)`,
 }
 
 module.exports = Akun;
-
-
-
-
