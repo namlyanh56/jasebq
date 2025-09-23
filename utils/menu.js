@@ -25,7 +25,7 @@ const mainMenu = (ctx) => {
     .text(k('⚙️ Settings')).text(k('📈 Lihat Statistik')).row()
     .text(k('👥 Ganti Sesi')).text(k('💡 Bantuan'))
     .resized();
-  const text = `*👋🏻 Hai!, ${firstName},*\n\nSelamat datang kembali di Ubot by @JaeHype!\n\n---\n*Status Akun:*\n👤 Akun Aktif: *${a.name}*\n📊 Status Ubot: *${status}*`;
+  const text = `*👋🏻 Hai!, ${firstName}*\n\nSelamat datang kembali di Ubot by @JaeHype!\n\n---\n*Status Akun:*\n👤 Akun Aktif: *${a.name}*\n📚 Status Ubot: *${status}*`;
   return { text, reply_markup: keyboard, parse_mode: "Markdown" };
 };
 
@@ -84,9 +84,26 @@ const startCommand = async (ctx) => {
 };
 
 const helpCommand = async (ctx) => {
-  const text = `✨ *Selamat Datang di Ubot Panorama!* ✨
-👤 Owner: @JaeHype
-📢 Channel: @PanoramaaStoree`;
+  const text = `✨*Ubot Panorama*✨
+Gunakan untuk mengirim pesan terjadwal ke banyak grup.
+
+
+
+*Langkah cepat:*
+1. Buat sesi: 🤖 Buat Userbot & login
+2. Tambah pesan: ✉️ Kelola Pesan → ➕
+3. Tambah target: 📚 Kelola Target → ➕ / Ambil Semua
+4. Jalankan: 🚀 Jalankan Ubot
+
+
+
+⚠️* Bot ini gratis, gunakan sebaik-baiknya. Masih ada kekurangan. 
+Kalau ingin versi lebih lengkap dan canggih, bisa pindah versi berbayar. Terima kasih atas pengertiannya!*
+
+
+
+Kontak: @JaeHype
+Channel Update: @PanoramaaStore`;
   await ctx.reply(text, {
     parse_mode: "Markdown",
     reply_markup: new Keyboard().text(k('⬅️ Kembali')).resized()
@@ -104,3 +121,4 @@ module.exports = {
   startCommand,
   helpCommand
 };
+
