@@ -42,7 +42,7 @@ module.exports = (bot) => {
   bot.hears('📍 Kelola Target', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a?.authed) return ctx.reply('❌ Login dulu');
-    await ctx.reply(`*Silahkan Pilih Opsi Menu*`}`, { reply_markup: targetMenu(a) });
+    await ctx.reply(`*Silahkan Pilih Opsi Menu*`, { reply_markup: targetMenu(a) });
   });
 
   bot.hears('➕ Tambah Target', async (ctx) => {
@@ -117,4 +117,5 @@ _@usernamech_
     }
   });
 };
+
 
