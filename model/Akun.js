@@ -2,6 +2,14 @@ const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { API_ID, API_HASH } = require('../config/setting');
 
+/**
+ * Catatan struktur this.msgs:
+ *  - string  -> pesan teks biasa (akan di-send copy)
+ *  - object  -> { type:'forward', chatId:<BotAPIChatId>, messageId:Number, preview:String }
+ *
+ * Hanya object type:'forward' yang akan di-forwardMessages.
+ * Lainnya (string) akan dikirim dengan sendMessage (copy paste).
+ */
 class Akun {
   constructor(uid) {
     this.uid = uid;
@@ -10,23 +18,19 @@ class Akun {
     this.name = '';
     this.authed = false;
 
-    // msgs: string (teks), atau objek {chatId, messageId, preview}
-    this.msgs = [];
-
-    this.targets = new Map();
-    this.all = false;
-
-    this.delayMode = 'antar';    // 'antar' | 'semua'
-    this.delay = 5;              // detik (mode antar)
-    this.delayAllGroups = 20;    // menit (mode semua)
-
-    this.startAfter = 0;         // menit
-    this.stopAfter = 0;          // menit auto stop
+    this.msgs = [];                // Lihat catatan di atas
+    this.targets = new Map();      // key: String(id); value: {id,title,entity?}
+    this.all = false;              // (jika nanti mau mode ambil semua dialog)
+    this.delayMode = 'antar';      // 'antar' | 'semua'
+    this.delay = 5;                // detik (antar)
+    this.delayAllGroups = 20;      // menit (semua)
+    this.startAfter = 0;           // menit tunda mulai
+    this.stopAfter = 0;            // menit auto stop
 
     this.running = false;
     this.timer = null;
-    this.idx = 0;
-    this.msgIdx = 0;
+    this.idx = 0;                  // indeks target (antar)
+    this.msgIdx = 0;               // indeks pesan
 
     this.stats = { sent: 0, failed: 0, skip: 0, start: 0 };
 
@@ -34,7 +38,7 @@ class Akun {
     this.pendingPass = null;
     this.pendingMsgId = null;
 
-    this._cleanedLegacy = false;
+    this.sourcePeerCache = new Map(); // cache entity sumber forward
   }
 
   async init() {
@@ -119,40 +123,8 @@ class Akun {
     this.cleanup(ctx);
   }
 
-  // ---------- LEGACY CLEANUP ----------
-  _cleanupLegacyInvalidMessages() {
-    if (this._cleanedLegacy) return;
-    const before = this.msgs.length;
-    this.msgs = this.msgs.filter(m => {
-      if (typeof m === 'string') return true;
-      if (!m) return false;
-      if (typeof m.messageId !== 'number') return false;
-      if (!m.chatId) return false;
-      // Buang objek warisan dengan chatId numerik kecil (kemungkinan BOT_ID)
-      if (m.chatId !== 'me' && Math.abs(Number(m.chatId)) < 100000) return false;
-      return true;
-    });
-    const removed = before - this.msgs.length;
-    if (removed) console.log(`[CLEANUP] Menghapus ${removed} pesan legacy tidak valid`);
-    this._cleanedLegacy = true;
-  }
-
-  // Konversi Bot API chat id -> internal MTProto id (supergroup/channel)
-  // Bot API: -100xxxxxxxxxx  => internal: xxxxxxxxxx (BigInt)
-  botIdToInternal(botChatId) {
-    if (typeof botChatId !== 'number' && typeof botChatId !== 'bigint') return null;
-    const id = BigInt(botChatId);
-    if (id >= 0) return id; // bukan channel style -100
-    const abs = -id;        // 100xxxxxxxxxx
-    if (abs > 1000000000000n) {
-      return abs - 1000000000000n; // hapus prefix 100
-    }
-    return abs; // fallback
-  }
-
   start(botApi) {
     if (this.running) return;
-    this._cleanupLegacyInvalidMessages();
     if (!this.msgs.length) {
       botApi && botApi.sendMessage(this.uid, '❌ Tidak ada pesan.');
       return;
@@ -161,7 +133,6 @@ class Akun {
       botApi && botApi.sendMessage(this.uid, '❌ Tidak ada target.');
       return;
     }
-
     this.running = true;
     this.stats = { sent: 0, failed: 0, skip: 0, start: Date.now() };
     this.idx = 0;
@@ -182,36 +153,32 @@ class Akun {
     }
   }
 
-  // Migrasi string -> Saved Messages
-  async ensureMsgObject(i) {
-    const item = this.msgs[i];
-    if (!item) return null;
-    if (typeof item === 'string') {
-      try {
-        const sent = await this.client.sendMessage('me', { message: item });
-        const sentId = Array.isArray(sent) ? sent[0].id : sent.id;
-        this.msgs[i] = {
-          chatId: 'me',
-          messageId: sentId,
-          preview: item.slice(0, 60)
-        };
-        return this.msgs[i];
-      } catch (e) {
-        console.error('[ensureMsgObject] gagal kirim ke Saved Messages:', e.message);
-        return null;
-      }
+  // Konversi Bot API chat id -> internal id untuk channel/supergroup
+  toInternalId(botApiChatId) {
+    if (typeof botApiChatId !== 'number' && typeof botApiChatId !== 'bigint') return null;
+    const n = BigInt(botApiChatId);
+    if (n >= 0n) return n; // kemungkinan user / already internal
+    const abs = -n;
+    // supergroup / channel: -100xxxxxxxxxx
+    if (String(abs).startsWith('100')) {
+      // abs = 100xxxxxxxxxx -> internal = abs - 1000000000000
+      return abs - 1000000000000n;
     }
-    return item;
+    // normal group: -xxxxxxxx -> internal id pakai abs
+    return abs;
   }
 
-  async ensureTargetEntity(t) {
-    if (t.entity) return t.entity;
+  async getSourcePeer(chatId) {
+    // cache
+    if (this.sourcePeerCache.has(chatId)) return this.sourcePeerCache.get(chatId);
+    const internal = this.toInternalId(chatId);
+    if (!internal) return null;
     try {
-      const ent = await this.client.getEntity(t.id);
-      t.entity = ent;
+      const ent = await this.client.getEntity(internal);
+      this.sourcePeerCache.set(chatId, ent);
       return ent;
     } catch (e) {
-      console.error('[ensureTargetEntity] gagal', t.id, e.message);
+      console.warn('[SOURCE PEER FAIL]', chatId, e.message);
       return null;
     }
   }
@@ -221,81 +188,76 @@ class Akun {
     return /Channel|Chat/i.test(ent.className) && !/Forbidden$/i.test(ent.className);
   }
 
-  async forwardOne(ent, msgObj, botApi) {
-    try {
-      await this.client.forwardMessages(
-        ent,
-        {
-          fromPeer: msgObj.chatId === 'me' ? 'me' : msgObj.chatId,
-          id: [msgObj.messageId]
-        }
-      );
-      this.stats.sent++;
-      console.log('[FORWARD OK]', ent.id, 'msgId:', msgObj.messageId);
-      return true;
-    } catch (e) {
-      // Coba sekali remigrasi kalau pesan di Saved Messages hilang
-      if (msgObj.chatId === 'me' && /MESSAGE_ID_INVALID|Cannot forward undefined/i.test(e.message)) {
-        console.warn('[REMIGRATE] Mencoba kirim ulang pesan hilang di Saved Messages...');
-        try {
-          // Cari sumber teks (preview mungkin terpotong) -> tidak ada backup full,
-          // jadi biarkan preview saja kalau string asli sudah hilang.
-          const text = msgObj.preview || '...';
-          const sent = await this.client.sendMessage('me', { message: text });
-          const newId = Array.isArray(sent) ? sent[0].id : sent.id;
-          msgObj.messageId = newId;
-          await this.client.forwardMessages(
-            ent,
-            { fromPeer: 'me', id: [newId] }
-          );
-          this.stats.sent++;
-          console.log('[FORWARD OK REMIGRATE]', ent.id);
-          return true;
-        } catch (e2) {
-          console.error('[FORWARD FAIL REMIGRATE]', e2.message);
-        }
+  async forwardMessage(targetEntity, msgObj, botApi) {
+    // msgObj: { type:'forward', chatId, messageId }
+    const source = await this.getSourcePeer(msgObj.chatId);
+    if (!source) throw new Error('Sumber belum bisa diakses (userbot belum join?).');
+    await this.client.forwardMessages(
+      targetEntity,
+      {
+        fromPeer: source,
+        id: [msgObj.messageId]
       }
-      this.stats.failed++;
-      console.error('[FORWARD FAIL]', ent.id, e.message);
-      if (e.message?.includes('FLOOD_WAIT')) {
-        const wait = +(e.message.match(/\d+/)?.[0] || 60);
-        botApi && botApi.sendMessage(this.uid, `⚠️ FLOOD_WAIT ${wait}s`);
-      }
-      return false;
-    }
+    );
+    this.stats.sent++;
   }
 
-  // Mode: satu pesan dikirim ke semua target per interval besar
+  async sendText(targetEntity, text) {
+    await this.client.sendMessage(targetEntity, { message: text });
+    this.stats.sent++;
+  }
+
   async broadcastAllGroups(botApi) {
     if (!this.running) return;
-
     const tick = async () => {
       if (!this.running) return;
+
       if (this.stopAfter > 0 && Date.now() - this.stats.start >= this.stopAfter * 60000) {
         this.stop();
         botApi && botApi.sendMessage(this.uid, '⏰ Auto stop');
         return;
       }
+
       if (!this.msgs.length || !this.targets.size) {
         this.stats.skip++;
         return;
       }
+
       if (this.msgIdx >= this.msgs.length) this.msgIdx = 0;
+      const msg = this.msgs[this.msgIdx];
 
-      const msgObj = await this.ensureMsgObject(this.msgIdx);
-      if (!msgObj) {
-        this.stats.skip++;
-        this.msgIdx++;
-        return;
+      const targetList = Array.from(this.targets.values());
+      for (const t of targetList) {
+        let ent = t.entity;
+        if (!ent) {
+          try {
+            ent = await this.client.getEntity(t.id);
+            t.entity = ent;
+          } catch (e) {
+            this.stats.failed++;
+            console.error('[TARGET RESOLVE FAIL]', t.id, e.message);
+            continue;
+          }
+        }
+        if (!this.isGroupEntity(ent)) {
+          this.stats.skip++;
+          continue;
+        }
+
+        try {
+          if (typeof msg === 'string') {
+            await this.sendText(ent, msg);
+          } else if (msg.type === 'forward') {
+            await this.forwardMessage(ent, msg, botApi);
+          } else {
+            this.stats.skip++;
+          }
+        } catch (e) {
+          this.stats.failed++;
+          console.error('[SEND/FRWD FAIL]', e.message);
+        }
       }
 
-      const list = Array.from(this.targets.values());
-      for (const t of list) {
-        const ent = await this.ensureTargetEntity(t);
-        if (!ent) { this.stats.failed++; continue; }
-        if (!this.isGroupEntity(ent)) { this.stats.skip++; continue; }
-        await this.forwardOne(ent, msgObj, botApi);
-      }
       this.msgIdx++;
     };
 
@@ -303,58 +265,77 @@ class Akun {
       this.timer = setInterval(tick, this.delayAllGroups * 60000);
       tick();
     };
-
     if (this.startAfter > 0) {
       botApi && botApi.sendMessage(this.uid, `⏳ Mulai dalam ${this.startAfter}m`);
       setTimeout(run, this.startAfter * 60000);
     } else run();
   }
 
-  // Mode: rotasi target satu per satu
   async broadcastBetweenGroups(botApi) {
     if (!this.running) return;
-
     const tick = async () => {
       if (!this.running) return;
+
       if (this.stopAfter > 0 && Date.now() - this.stats.start >= this.stopAfter * 60000) {
         this.stop();
         botApi && botApi.sendMessage(this.uid, '⏰ Auto stop');
         return;
       }
+
       const targets = Array.from(this.targets.values());
       if (!targets.length || !this.msgs.length) {
         this.stats.skip++;
         return;
       }
+
       if (this.idx >= targets.length) {
         this.idx = 0;
         this.msgIdx++;
       }
       if (this.msgIdx >= this.msgs.length) this.msgIdx = 0;
 
-      const t = targets[this.idx++];
-      const msgObj = await this.ensureMsgObject(this.msgIdx);
-      if (!msgObj) { this.stats.skip++; return; }
+      const currentTarget = targets[this.idx++];
+      let ent = currentTarget.entity;
+      if (!ent) {
+        try {
+          ent = await this.client.getEntity(currentTarget.id);
+          currentTarget.entity = ent;
+        } catch (e) {
+          this.stats.failed++;
+          console.error('[TARGET RESOLVE FAIL]', currentTarget.id, e.message);
+          return;
+        }
+      }
+      if (!this.isGroupEntity(ent)) {
+        this.stats.skip++;
+        return;
+      }
 
-      const ent = await this.ensureTargetEntity(t);
-      if (!ent) { this.stats.failed++; return; }
-      if (!this.isGroupEntity(ent)) { this.stats.skip++; return; }
-
-      await this.forwardOne(ent, msgObj, botApi);
+      const msg = this.msgs[this.msgIdx];
+      try {
+        if (typeof msg === 'string') {
+          await this.sendText(ent, msg);
+        } else if (msg.type === 'forward') {
+          await this.forwardMessage(ent, msg, botApi);
+        } else {
+          this.stats.skip++;
+        }
+      } catch (e) {
+        this.stats.failed++;
+        console.error('[SEND/FRWD FAIL]', e.message);
+      }
     };
 
     const run = () => {
       this.timer = setInterval(tick, this.delay * 1000);
       tick();
     };
-
     if (this.startAfter > 0) {
       botApi && botApi.sendMessage(this.uid, `⏳ Mulai dalam ${this.startAfter}m`);
       setTimeout(run, this.startAfter * 60000);
     } else run();
   }
 
-  // Tambah target (grup/channel) via teks (invite link / username / id)
   async addTargets(text) {
     const inputs = text.split(/\s+/).filter(Boolean);
     let success = 0;
@@ -363,44 +344,33 @@ class Akun {
       const original = raw;
       try {
         let t = raw.trim();
-
         if (t.startsWith('https://t.me/')) t = t.replace('https://t.me/', '');
         else if (t.startsWith('http://t.me/')) t = t.replace('http://t.me/', '');
         if (t.startsWith('@')) t = t.slice(1);
 
-        // Invite link
+        // Invite link privat: +hash atau joinchat/hash
         if (t.startsWith('+') || t.startsWith('joinchat/')) {
           let hash = t.startsWith('+') ? t.slice(1) : t.split('joinchat/')[1];
-          hash = hash.split(/[?\s]/)[0];
+            hash = hash.split(/[?\s]/)[0];
           let chatEntity = null;
           try {
             const info = await this.client.invoke(new Api.messages.CheckChatInvite({ hash }));
-            if (info.className === 'ChatInviteAlready') chatEntity = info.chat;
-            else if (info.className === 'ChatInvite') {
+            if (info.className === 'ChatInviteAlready') {
+              chatEntity = info.chat;
+            } else if (info.className === 'ChatInvite') {
               const upd = await this.client.invoke(new Api.messages.ImportChatInvite({ hash }));
               chatEntity = upd.chats?.[0];
             }
           } catch (e) {
-            if (!/USER_ALREADY_PARTICIPANT/i.test(e.message)) {
-              throw e;
-            }
+            if (!/USER_ALREADY_PARTICIPANT/i.test(e.message)) throw e;
           }
           if (chatEntity) {
-            if (!this.isGroupEntity(chatEntity)) {
-              this.targets.set(String(chatEntity.id), {
-                id: chatEntity.id,
-                title: `${chatEntity.title || chatEntity.id} (bukan grup)`,
-                entity: chatEntity
-              });
-              continue;
+            if (this.isGroupEntity(chatEntity)) {
+              this.targets.set(String(chatEntity.id), { id: chatEntity.id, title: chatEntity.title, entity: chatEntity });
+              success++;
+            } else {
+              this.targets.set(String(chatEntity.id), { id: chatEntity.id, title: `${chatEntity.title || chatEntity.id} (bukan grup)`, entity: chatEntity });
             }
-            const idStr = String(chatEntity.id);
-            this.targets.set(idStr, {
-              id: chatEntity.id,
-              title: chatEntity.title || idStr,
-              entity: chatEntity
-            });
-            success++;
           } else {
             this.targets.set(original, { id: original, title: `${original} (gagal ambil)`, entity: null });
           }
@@ -410,63 +380,36 @@ class Akun {
         // Username publik
         if (/^[A-Za-z0-9_]{5,}$/.test(t)) {
           const ent = await this.client.getEntity(t);
-          if (!this.isGroupEntity(ent)) {
-            this.targets.set(String(ent.id), {
-              id: ent.id,
-              title: `${ent.username || ent.id} (bukan grup)`,
-              entity: ent
-            });
-            continue;
+          if (this.isGroupEntity(ent)) {
+            this.targets.set(String(ent.id), { id: ent.id, title: ent.title || ent.firstName || ent.username || String(ent.id), entity: ent });
+            success++;
+          } else {
+            this.targets.set(String(ent.id), { id: ent.id, title: `${ent.username || ent.id} (bukan grup)`, entity: ent });
           }
-          const idStr = String(ent.id);
-          this.targets.set(idStr, {
-            id: ent.id,
-            title: ent.title || ent.firstName || ent.username || idStr,
-            entity: ent
-          });
-          success++;
           continue;
         }
 
-        // ID numerik
+        // ID numerik (bisa -100..., -..., atau positif)
         if (/^-?\d+$/.test(t)) {
-          // Bisa jadi format Bot API -100xxxxxxxxxx
-          let mtId;
-            if (t.startsWith('-100')) {
-              try {
-                mtId = this.botIdToInternal(BigInt(t));
-              } catch {
-                mtId = BigInt(t);
-              }
-            } else {
-              mtId = BigInt(t);
-            }
-          const ent = await this.client.getEntity(mtId);
-          if (!this.isGroupEntity(ent)) {
-            this.targets.set(String(ent.id), {
-              id: ent.id,
-              title: `${ent.id} (bukan grup)`,
-              entity: ent
-            });
-            continue;
+          let internal = BigInt(t);
+          if (String(t).startsWith('-100')) internal = this.toInternalId(internal);
+          else if (internal < 0) internal = -internal; // normal group
+          const ent = await this.client.getEntity(internal);
+          if (this.isGroupEntity(ent)) {
+            this.targets.set(String(ent.id), { id: ent.id, title: ent.title || ent.firstName || String(ent.id), entity: ent });
+            success++;
+          } else {
+            this.targets.set(String(ent.id), { id: ent.id, title: `${ent.id} (bukan grup)`, entity: ent });
           }
-          const idStr = String(ent.id);
-          this.targets.set(idStr, {
-            id: ent.id,
-            title: ent.title || ent.firstName || idStr,
-            entity: ent
-          });
-          success++;
           continue;
         }
 
-        // Format tidak dikenali
+        // Format lain
         this.targets.set(original, { id: original, title: `${original} (format tidak dikenali)`, entity: null });
       } catch (err) {
-        this.targets.set(original, { id: original, title: `${original} (error: ${err.message})`, entity: null });
+        this.targets.set(raw, { id: raw, title: `${raw} (error: ${err.message})`, entity: null });
       }
     }
-
     return success;
   }
 
@@ -476,8 +419,7 @@ class Akun {
       dialogs
         .filter(d => d.isGroup || d.isChannel)
         .forEach(d => {
-          const idAsString = String(d.id);
-          this.targets.set(idAsString, { id: d.id, title: d.title, entity: d });
+          this.targets.set(String(d.id), { id: d.id, title: d.title, entity: d });
         });
       return this.targets.size;
     } catch {
