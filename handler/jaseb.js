@@ -25,7 +25,6 @@ function buildStatsText(ctx, a) {
   const gagal = a.stats.failed || 0;
   const sukses = a.stats.sent || 0;
 
-  // HILANGKAN underscore yang bikin Markdown error
   return `🏷 UserID : ${userId}
 
 ⏰ *Timer*  : (Start - ${startStr}) (Stop - ${stopStr})
@@ -60,10 +59,13 @@ module.exports = (bot) => {
   bot.hears('⚙️ Settings', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
-    await ctx.reply('Silakan pilih menu *Jeda*, *Timer Mulai*, atau *Timer Stop*.
+    await ctx.reply(
+      `Silakan pilih menu *Jeda*, *Timer Mulai*, atau *Timer Stop*.
 ⚠️ Tips: Pakai jeda panjang biar lebih aman dan minim risiko.
 
-_Butuh bantuan? _👉 @JaeHype', { reply_markup: settingMenu(a) });
+_Butuh bantuan?_ 👉 @JaeHype`,
+      { parse_mode: 'Markdown', reply_markup: settingMenu(a) }
+    );
   });
 
   bot.hears(/^(🔗 Jeda Antar Grup|⛓️ Jeda Per Semua Grup): .+/, async (ctx) => {
@@ -71,27 +73,33 @@ _Butuh bantuan? _👉 @JaeHype', { reply_markup: settingMenu(a) });
     if (!a) return ctx.reply('❌ Login dulu');
     if (ctx.message.text.startsWith('🔗 Jeda Antar Grup')) {
       ctx.session = { act: 'setdelay' };
-      await ctx.reply('*Jeda antar grup: 1–3600 detik*
-👉_Hindari jeda terlalu pendek agar lebih aman_.:');
+      await ctx.reply(
+        `*Jeda antar grup: 1–3600 detik*\n👉 _Hindari jeda terlalu pendek agar lebih aman_.`,
+        { parse_mode: 'Markdown' }
+      );
     } else {
       ctx.session = { act: 'setdelayall' };
-      await ctx.reply('*Masukkan jeda (menit): 1–1440*
-👉 _Rekomendasi: gunakan ≥20 menit jika broadcast/spam seharian._):');
+      await ctx.reply(
+        `*Masukkan jeda (menit): 1–1440*\n👉 _Rekomendasi: gunakan ≥20 menit jika broadcast seharian_.`,
+        { parse_mode: 'Markdown' }
+      );
     }
   });
 
   bot.hears('🔄 Ganti Mode Jeda', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
-    await ctx.reply('*Silakan pilih mode jeda* ⏳
+    await ctx.reply(
+      `*Silakan pilih mode jeda* ⏳
 
-*Jeda antar grup*: merupakan jeda yang digunakan ketika mengirim pesan broadcast dari grup 1 ke grup 2 dan seterusnya.
-Jeda ini dalam hitungan detik.                                                                               
-*Jeda per semua grup*: merupakan jeda yang diambil setelah mengirim pesan broadcast langsung ke semua grup.
+*Jeda antar grup* = jeda antar pengiriman ke grup berikutnya (detik).
+*Jeda per semua grup* = jeda antar “putaran” broadcast ke seluruh grup (menit).
 
-⚠️* Selalu hindari jeda pendek; apapun mode yang dipilih, penggunaan jeda pendek tidak aman.*
+⚠️ *Hindari jeda terlalu pendek; risiko FLOOD / limit.*
 
-❓_ Butuh bantuan? Hubungi: @JaeHype_', { reply_markup: jedaMenu() });
+❓ _Bantuan: @JaeHype_`,
+      { parse_mode: 'Markdown', reply_markup: jedaMenu() }
+    );
   });
 
   bot.hears('🔗 Jeda Antar Grup', async (ctx) => {
@@ -112,14 +120,20 @@ Jeda ini dalam hitungan detik.
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
     ctx.session = { act: 'setstart' };
-    await ctx.reply('Kirim waktu mulai Userbot (*contoh: 14:30*) atau ketik "-" kalau mau hapus jam mulai.');
+    await ctx.reply(
+      'Kirim waktu mulai Userbot (contoh: 14:30) atau kirim "-" untuk hapus.',
+      { parse_mode: 'Markdown' }
+    );
   });
 
   bot.hears(/🕝 Waktu Stop:.*$/, async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
     ctx.session = { act: 'setstop' };
-    await ctx.reply('Kirim waktu stop Userbot (*contoh: 14:30*) atau ketik "-" kalau mau hapus jam mulai.');
+    await ctx.reply(
+      'Kirim waktu stop Userbot (contoh: 18:45) atau kirim "-" untuk hapus.',
+      { parse_mode: 'Markdown' }
+    );
   });
 
   bot.hears('📈 Lihat Statistik', async (ctx) => {
@@ -154,5 +168,3 @@ Jeda ini dalam hitungan detik.
     await ctx.answerCallbackQuery();
   });
 };
-
-
