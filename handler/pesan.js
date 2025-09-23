@@ -33,7 +33,7 @@ const createDeleteList = (ctx) => {
   if (!a || !a.msgs.length) {
     return { text: 'ℹ️ Daftar pesan kosong.', reply_markup: new InlineKeyboard().text('Tutup', 'delete_this') };
   }
-  let text = "Pilih pesan yang ingin dihapus:\n\n";
+  let text = "_Pilih pesan yang ingin dihapus_:\n\n";
   const kb = new InlineKeyboard();
   a.msgs.forEach((msg, i) => {
     const view = snippet(msg).replace(/\*/g, '');
@@ -56,14 +56,18 @@ module.exports = (bot) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
     ctx.session = { act: 'addmsg' };
-    await ctx.reply('Kirim teks / forward dari channel/grup:');
+    await ctx.reply('*Silakan kirim pesan yang akan dibroadcast.*
+Untuk menampilkan emoji premium, pesan tersebut harus di-forward dari chat atau grup.
+*⚠️ Saat ini belum mendukung media.*
+
+_Ada kendala? Hubungi: @JaeHype_');
   });
 
   bot.hears('📋 List Pesan', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
     if (!a.msgs.length) return ctx.reply('ℹ️ Daftar pesan kosong.');
-    let out = `📝 Pesan (${a.msgs.length}):\n\n`;
+    let out = `📝 *List Pesan Broadcast* (${a.msgs.length}):\n\n`;
     a.msgs.forEach((m, i) => {
       out += `${i + 1}. ${snippet(m)}\n`;
     });
@@ -107,3 +111,4 @@ module.exports = (bot) => {
     await ctx.answerCallbackQuery();
   });
 };
+
