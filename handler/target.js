@@ -42,14 +42,19 @@ module.exports = (bot) => {
   bot.hears('📍 Kelola Target', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a?.authed) return ctx.reply('❌ Login dulu');
-    await ctx.reply(`🎯 Target: ${a.all ? 'Auto' : a.targets.size}`, { reply_markup: targetMenu(a) });
+    await ctx.reply(`*Silahkan Pilih Opsi Menu*`}`, { reply_markup: targetMenu(a) });
   });
 
   bot.hears('➕ Tambah Target', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
     ctx.session = { act: 'addtgt' };
-    await ctx.reply('Kirim target:\n@username\nhttps://t.me/xxx\n-1001234567890');
+    await ctx.reply('📩* Silakan kirim link atau username Channel/Grup yang akan menjadi target broadcast*.
+Contoh:
+_https://t.me/..._
+_@usernamech_
+
+❓ *Ada kendala? Hubungi: @JaeHype*');
   });
   
   // Ambil semua target (ditambahkan loading)
@@ -71,7 +76,7 @@ module.exports = (bot) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
     if (!a.targets.size) return ctx.reply('❌ Daftar target kosong.');
-    let text = `📋 Target (${a.targets.size}):\n\n`;
+    let text = `📋 *Daftar CH/Grup saat ini* (${a.targets.size}):\n\n`;
     let i = 1;
     for (const [, target] of a.targets) {
       text += `${i}. ${target.title}\n`;
@@ -112,3 +117,4 @@ module.exports = (bot) => {
     }
   });
 };
+
