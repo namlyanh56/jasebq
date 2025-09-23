@@ -24,7 +24,6 @@ const createTargetDeleteList = (ctx) => {
   return { text, reply_markup: kb, parse_mode: "Markdown" };
 };
 
-// Util untuk pesan loading ephemeral
 async function showLoading(ctx, msg = '⏳ *Tunggu sebentar...*') {
   try {
     const m = await ctx.reply(msg, { parse_mode: 'Markdown' });
@@ -42,22 +41,24 @@ module.exports = (bot) => {
   bot.hears('📍 Kelola Target', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a?.authed) return ctx.reply('❌ Login dulu');
-    await ctx.reply(`*Silahkan Pilih Opsi Menu*`, { reply_markup: targetMenu(a) });
+    await ctx.reply('*Silahkan Pilih Opsi Menu*', { parse_mode: 'Markdown', reply_markup: targetMenu(a) });
   });
 
   bot.hears('➕ Tambah Target', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
     ctx.session = { act: 'addtgt' };
-    await ctx.reply('📩* Silakan kirim link atau username Channel/Grup yang akan menjadi target broadcast*.
+    await ctx.reply(
+`📩 *Silakan kirim link atau username Channel/Grup yang akan menjadi target broadcast*.
 Contoh:
 _https://t.me/..._
 _@usernamech_
 
-❓ *Ada kendala? Hubungi: @JaeHype*');
+❓ *Ada kendala? Hubungi: @JaeHype*`,
+      { parse_mode: 'Markdown' }
+    );
   });
-  
-  // Ambil semua target (ditambahkan loading)
+
   bot.hears('🖇️ Ambil Semua', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
@@ -83,7 +84,7 @@ _@usernamech_
       i++;
       if (i > 20) { text += `\n...dan ${a.targets.size - 20} lainnya.`; break; }
     }
-    await ctx.reply(text);
+    await ctx.reply(text, { parse_mode: 'Markdown' });
   });
 
   bot.hears('🗑️ Hapus Target', async (ctx) => {
@@ -93,7 +94,7 @@ _@usernamech_
     const { text, reply_markup, parse_mode } = createTargetDeleteList(ctx);
     await ctx.reply(text, { reply_markup, parse_mode });
   });
-  
+
   bot.callbackQuery(/del_tgt_(.+)/, async (ctx) => {
     const targetId = ctx.match[1];
     const a = getAcc(ctx.from.id);
@@ -106,7 +107,7 @@ _@usernamech_
       await ctx.answerCallbackQuery({ text: '❌ Target sudah tidak ada.', show_alert: true });
     }
   });
-  
+
   bot.callbackQuery('delete_all_targets', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (a) {
@@ -117,5 +118,3 @@ _@usernamech_
     }
   });
 };
-
-
