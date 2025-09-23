@@ -1,6 +1,11 @@
 const { InlineKeyboard } = require('grammy');
 const { getAcc } = require('../utils/helper');
 const { pesanMenu } = require('../utils/menu');
+const snippet = (m) => {
+  if (!m) return '(kosong)';
+  if (typeof m === 'string') return m.slice(0, 40) + (m.length > 40 ? '...' : '');
+  return (m.preview || '').slice(0, 40) + ((m.preview || '').length > 40 ? '...' : '');
+};
 
 const createDeleteList = (ctx) => {
     const a = getAcc(ctx.from.id);
@@ -33,16 +38,15 @@ module.exports = (bot) => {
   });
   
   bot.hears('📋 List Pesan', async (ctx) => {
-    const a = getAcc(ctx.from.id);
-    if (!a) return ctx.reply('❌ Login dulu');
-    if (!a.msgs.length) return ctx.reply('ℹ️ Daftar pesan teks kosong.');
-    let responseText = `📝 **Pesan Teks Tersimpan (${a.msgs.length}):**\n\n`;
-    a.msgs.forEach((msg, i) => {
-      responseText += `  ${i + 1}. *${msg.slice(0, 40)}${msg.length > 40 ? '...' : ''}*\n`;
-    });
-    await ctx.reply(responseText, { parse_mode: "Markdown" });
+  const a = getAcc(ctx.from.id);
+  if (!a) return ctx.reply('❌ Login dulu');
+  if (!a.msgs.length) return ctx.reply('ℹ️ Daftar pesan kosong.');
+  let responseText = `📝 Pesan (${a.msgs.length}):\n\n`;
+  a.msgs.forEach((m, i) => {
+    responseText += `${i+1}. ${snippet(m)}\n`;
   });
-
+  await ctx.reply(responseText);
+});
   bot.hears('🗑️ Hapus Pesan', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
@@ -74,3 +78,4 @@ module.exports = (bot) => {
       }
   });
 };
+
