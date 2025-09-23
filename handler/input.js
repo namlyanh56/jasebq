@@ -92,10 +92,10 @@ module.exports = async (ctx) => {
             mid: m.forward_from_message_id,
             text: raw.slice(0, 200)
           });
-          await ctx.reply('✅ Disimpan (forward).');
+          await ctx.reply('✅Teks Disimpan.');
         } else if (raw) {
           a.msgs.push(raw);
-          await ctx.reply('✅ Disimpan (teks).');
+          await ctx.reply('✅ Teks Disimpan.');
         } else {
           a.msgs.push('[Unsupported media]');
           await ctx.reply('⚠️ Media belum didukung, disimpan sebagai placeholder.');
@@ -181,3 +181,4 @@ module.exports = async (ctx) => {
     ctx.session = null;
   }
 };
+
