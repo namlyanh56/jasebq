@@ -28,16 +28,16 @@ function buildStatsText(ctx, a) {
   // HILANGKAN underscore yang bikin Markdown error
   return `🏷 UserID : ${userId}
 
-⏳ Delay  : ${delayStr}
-⏰ Timer  : (Start - ${startStr}) (Stop - ${stopStr})
-🎄 Grup   : ${grupCount}
-🧩 List   : ${msgCount}
-👥 Akun   : ${akunCount}
+⏳ *Delay*  : ${delayStr}
+⏰ *Timer*  : (Start - ${startStr}) (Stop - ${stopStr})
+🎄 *Grup*   : ${grupCount}
+🧩 *List*   : ${msgCount}
+👥 *Akun*   : ${akunCount}
 
-📮 Pesan Gagal     : ${gagal}
-📚 Pesan Berhasil  : ${sukses}
+📮 *Pesan Gagal*     : ${gagal}
+📚 *Pesan Berhasil*  : ${sukses}
 
-*ada pertanyaan? bisa tanya @JaeHype*`;
+_ada pertanyaan? bisa tanya @JaeHype_`;
 }
 
 module.exports = (bot) => {
@@ -141,3 +141,4 @@ module.exports = (bot) => {
     await ctx.answerCallbackQuery();
   });
 };
+
