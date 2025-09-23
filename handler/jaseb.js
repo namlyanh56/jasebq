@@ -4,7 +4,6 @@ const { mainMenu, settingMenu, jedaMenu } = require('../utils/menu');
 
 function formatHHMM(hhmm) {
   if (!hhmm || !/^([01]?\d|2[0-3]):([0-5]\d)$/.test(hhmm)) return '00:00';
-  // Normalisasi ke 2 digit
   const [h, m] = hhmm.split(':');
   return `${h.padStart(2,'0')}:${m.padStart(2,'0')}`;
 }
@@ -26,10 +25,11 @@ function buildStatsText(ctx, a) {
   const gagal = a.stats.failed || 0;
   const sukses = a.stats.sent || 0;
 
+  // HILANGKAN underscore yang bikin Markdown error
   return `🏷 UserID : ${userId}
 
 ⏳ Delay  : ${delayStr}
-⏰ Timer  : (Start - ${startStr})_(Stop - ${stopStr})
+⏰ Timer  : (Start - ${startStr}) (Stop - ${stopStr})
 🎄 Grup   : ${grupCount}
 🧩 List   : ${msgCount}
 👥 Akun   : ${akunCount}
@@ -95,7 +95,6 @@ module.exports = (bot) => {
     await ctx.reply('✅ Mode diubah ke Jeda Semua Grup.', { reply_markup: settingMenu(a) });
   });
 
-  // Waktu Mulai
   bot.hears(/🕒 Waktu Mulai:.*$/, async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
@@ -103,7 +102,6 @@ module.exports = (bot) => {
     await ctx.reply('Kirim Waktu Mulai (HH:MM) atau "-" untuk hapus.');
   });
 
-  // Waktu Stop (label baru: 🕝)
   bot.hears(/🕝 Waktu Stop:.*$/, async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
@@ -111,7 +109,6 @@ module.exports = (bot) => {
     await ctx.reply('Kirim Waktu Stop (HH:MM) atau "-" untuk hapus.');
   });
 
-  // Statistik – FORMAT BARU
   bot.hears('📈 Lihat Statistik', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
