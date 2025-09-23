@@ -1,11 +1,8 @@
-const { Keyboard, InlineKeyboard } = require('grammy');
+const { Keyboard } = require('grammy');
 const { getUser, getAcc } = require('./helper');
 
 const allCommandNames = new Set();
-const k = (text) => {
-    allCommandNames.add(text);
-    return text;
-};
+const k = (t) => { allCommandNames.add(t); return t; };
 
 const mainMenu = (ctx) => {
   const uid = ctx.from.id;
@@ -15,8 +12,8 @@ const mainMenu = (ctx) => {
 
   if (!a?.authed) {
     const keyboard = new Keyboard()
-      .text(k('🔐 Login')).row()
-      .text(k('🔄 Ganti Sesi')).text(k('💡 Bantuan'))
+      .text(k('🤖Buat Userbot')).row()
+      .text(k('👥 Akun')).text(k('💡 Bantuan'))
       .resized();
     const text = `*👋🏻 Hai!, ${firstName}*\n\nSelamat datang di Ubot by @JaeHype!\nBot ini bisa broadcast secara otomatis!\n\n*Owner : @JaeHype*\n*Channel: @PanoramaaStoree*`;
     return { text, reply_markup: keyboard, parse_mode: "Markdown" };
@@ -26,104 +23,84 @@ const mainMenu = (ctx) => {
     .text(k('🚀 Jalankan Ubot')).text(k('⛔ Hentikan Ubot')).row()
     .text(k('✉️ Kelola Pesan')).text(k('📍 Kelola Target')).row()
     .text(k('⚙️ Settings')).text(k('📈 Lihat Statistik')).row()
-    .text(k('🔄 Ganti Sesi')).text(k('💡 Bantuan'))
+    .text(k('👥 Ganti Sesi')).text(k('💡 Bantuan'))
     .resized();
   const text = `*👋🏻 Hai!, ${firstName},*\n\nSelamat datang kembali di Ubot by @JaeHype!\n\n---\n*Status Akun:*\n👤 Akun Aktif: *${a.name}*\n📊 Status Ubot: *${status}*`;
   return { text, reply_markup: keyboard, parse_mode: "Markdown" };
 };
 
-const pesanMenu = () => {
-  return new Keyboard()
+const pesanMenu = () =>
+  new Keyboard()
     .text(k('➕ Tambah Pesan')).row()
     .text(k('🗑️ Hapus Pesan')).text(k('📋 List Pesan')).row()
     .text(k('⬅️ Kembali'))
     .resized();
-};
 
-const targetMenu = (akun) => {
-    return new Keyboard()
-     .text(k('➕ Tambah Target')).text(k('🔄 Ambil Semua')).row()
-     .text(k('📋 List Target')).text(k('🗑️ Hapus Target')).row()
-     .text(k('⬅️ Kembali'))
-     .resized();
-  };
+const targetMenu = (a) =>
+  new Keyboard()
+    .text(k('➕ Tambah Target')).text(k('🖇️ Ambil Semua')).row()
+    .text(k('📋 List Target')).text(k('🗑️ Hapus Target')).row()
+    .text(k('⬅️ Kembali'))
+    .resized();
 
-const settingMenu = (akun) => {
-    // Pilih label yang tepat berdasarkan mode jeda
-    const delayModeText = akun.delayMode === 'semua' 
-      ? `⛓️ Jeda Per Semua Grup: ${akun.delayAllGroups}m` 
-      : `🔗 Jeda Antar Grup: ${akun.delay}s`;
-    
-    return new Keyboard()
-      .text(k(delayModeText)).row()
-      .text(k('🔄 Ganti Mode Jeda')).row()
-      .text(k(`⏰ Tunda Mulai: ${akun.startAfter}m`)).text(k(`🛑 Stop Otomatis: ${akun.stopAfter}m`)).row()
-      .text(k('⬅️ Kembali'))
-      .resized();
-};
+const settingMenu = (a) => {
+  const delayLabel = a.delayMode === 'semua'
+    ? `⛓️ Jeda Semua Grup: ${a.delayAllGroups}m`
+    : `🔗 Jeda Antar Grup: ${a.delay}s`;
 
-const jedaMenu = () => {
+  const startLabel = `🕒 Waktu Mulai: ${a.startTime ? a.startTime : '-'}`;
+  const stopLabel  = `🕝 Waktu Stop: ${a.stopTime ? a.stopTime : '-'}`;
+
   return new Keyboard()
-    .text(k('🔗 Jeda Antar Grup')).row()
-    .text(k('⛓️ Jeda Per Semua Grup')).row()
+    .text(k(delayLabel)).row()
+    .text(k('🔄 Ganti Mode Jeda')).row()
+    .text(k(startLabel)).text(k(stopLabel)).row()
     .text(k('⬅️ Kembali'))
     .resized();
 };
 
+const jedaMenu = () =>
+  new Keyboard()
+    .text(k('🔗 Jeda Antar Grup')).row()
+    .text(k('⛓️ Jeda Per Semua Grup')).row()
+    .text(k('⬅️ Kembali'))
+    .resized();
+
 const switchMenu = (user) => {
-    const kb = new Keyboard();
-    for (const [id, acc] of user.accounts) {
-      const icon = acc.authed ? '🟢' : '🔴';
-      const active = user.active === id ? ' ✅' : '';
-      kb.text(k(`${icon} Aktifkan: ${acc.name || id}${active}`)).row();
-    }
-    kb.text(k('➕ Tambah Sesi Baru')).row();
-    kb.text(k('⬅️ Kembali'));
-    return kb.resized();
+  const kb = new Keyboard();
+  for (const [id, acc] of user.accounts) {
+    const icon = acc.authed ? '🟢' : '🔴';
+    const active = user.active === id ? ' ✅' : '';
+    kb.text(k(`${icon} Aktifkan: ${acc.name || id}${active}`)).row();
+  }
+  kb.text(k('➕ Tambah Sesi Baru')).row();
+  kb.text(k('⬅️ Kembali'));
+  return kb.resized();
 };
 
 const startCommand = async (ctx) => {
   const menu = mainMenu(ctx);
-  await ctx.reply(menu.text, { 
-      reply_markup: menu.reply_markup,
-      parse_mode: menu.parse_mode 
-  });
+  await ctx.reply(menu.text, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
 };
 
 const helpCommand = async (ctx) => {
   const text = `✨ *Selamat Datang di Ubot Panorama!* ✨
-Bot ini adalah asisten Anda untuk menjalankan *Userbot Telegram*, yang berfungsi untuk mengirim pesan (broadcast) secara otomatis ke banyak tujuan sekaligus.
-
-⭐️ *FITUR UTAMA*
-• \`🔐\` *Login Multi-Sesi*: Gunakan beberapa akun.
-• \`✉️\` *Manajemen Pesan*: Kelola daftar pesan teks Anda.
-• \`🎯\` *Target Otomatis & Manual*: Pilih target atau ambil semua.
-• \`🔧\` *Kontrol Penuh*: Atur jeda, Waktu mulai, & Waktu stop.
-• \`📈\` *Statistik*: Pantau jumlah pesan terkirim dan gagal.
-
-🚀 *ALUR CEPAT*
-1. *Login* dengan akun Anda.
-2. *Atur* Pesan & Target.
-3. *Jalankan* Ubot!
-
-_Butuh bantuan atau ada pertanyaan?_
-👤 *Owner*: @JaeHype
-📢 *Channel*: @PanoramaaStoree`;
-
-  await ctx.reply(text, { 
-      parse_mode: "Markdown",
-      reply_markup: new Keyboard().text(k('⬅️ Kembali')).resized() 
+👤 Owner: @JaeHype
+📢 Channel: @PanoramaaStoree`;
+  await ctx.reply(text, {
+    parse_mode: "Markdown",
+    reply_markup: new Keyboard().text(k('⬅️ Kembali')).resized()
   });
 };
 
-module.exports = { 
-  allCommandNames, 
-  mainMenu, 
-  pesanMenu, 
-  targetMenu, 
-  settingMenu, 
+module.exports = {
+  allCommandNames,
+  mainMenu,
+  pesanMenu,
+  targetMenu,
+  settingMenu,
   jedaMenu,
-  switchMenu, 
-  startCommand, 
-  helpCommand 
+  switchMenu,
+  startCommand,
+  helpCommand
 };
