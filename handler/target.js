@@ -24,6 +24,20 @@ const createTargetDeleteList = (ctx) => {
   return { text, reply_markup: kb, parse_mode: "Markdown" };
 };
 
+// Util untuk pesan loading ephemeral
+async function showLoading(ctx, msg = '⏳ *Tunggu sebentar...*') {
+  try {
+    const m = await ctx.reply(msg, { parse_mode: 'Markdown' });
+    return m.message_id;
+  } catch {
+    return null;
+  }
+}
+async function deleteIfPossible(ctx, mid) {
+  if (!mid) return;
+  try { await ctx.api.deleteMessage(ctx.from.id, mid); } catch {}
+}
+
 module.exports = (bot) => {
   bot.hears('📍 Kelola Target', async (ctx) => {
     const a = getAcc(ctx.from.id);
@@ -38,14 +52,17 @@ module.exports = (bot) => {
     await ctx.reply('Kirim target:\n@username\nhttps://t.me/xxx\n-1001234567890');
   });
   
-  // Rename: sebelumnya '🔄 Ambil Semua'
+  // Ambil semua target (ditambahkan loading)
   bot.hears('🖇️ Ambil Semua', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
+    const loadingId = await showLoading(ctx);
     try {
       const count = await a.addAll();
+      await deleteIfPossible(ctx, loadingId);
       await ctx.reply(`✅ Berhasil mengambil ${count} target.`, { reply_markup: targetMenu(a) });
     } catch {
+      await deleteIfPossible(ctx, loadingId);
       await ctx.reply('❌ Gagal mengambil target.');
     }
   });
