@@ -1,97 +1,117 @@
 const { InlineKeyboard } = require('grammy');
 const { getAcc } = require('../utils/helper');
-const { targetMenu } = require('../utils/menu');
-
-const createTargetDeleteList = (ctx) => {
-  const a = getAcc(ctx.from.id);
-  if (!a || !a.targets.size) {
-    return { text: 'ℹ️ Daftar target manual Anda kosong.', reply_markup: new InlineKeyboard().text('Tutup', 'delete_this') };
-  }
-  let text = "Pilih target yang ingin dihapus:\n\n";
-  const kb = new InlineKeyboard();
-  let i = 1;
-  for (const [id, target] of a.targets) {
-    text += `${i}. *${target.title}*\n`;
-    kb.text(`❌ Hapus No. ${i}`, `del_tgt_${id}`).row();
-    i++;
-    if (i > 15) {
-      text += `\n...dan lainnya.`;
-      break;
-    }
-  }
-  kb.text('💥 HAPUS SEMUA TARGET', 'delete_all_targets').row();
-  kb.text('Tutup', 'delete_this');
-  return { text, reply_markup: kb, parse_mode: "Markdown" };
-};
+const { mainMenu, settingMenu, jedaMenu } = require('../utils/menu');
 
 module.exports = (bot) => {
-  bot.hears('📍 Kelola Target', async (ctx) => {
+  bot.hears(['🚀 Jalankan Ubot', '⛔ Hentikan Ubot'], async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a?.authed) return ctx.reply('❌ Login dulu');
-    await ctx.reply(`🎯 Target: ${a.all ? 'Auto' : a.targets.size}`, { reply_markup: targetMenu(a) });
-  });
-
-  bot.hears('➕ Tambah Target', async (ctx) => {
-    const a = getAcc(ctx.from.id);
-    if (!a) return ctx.reply('❌ Login dulu');
-    ctx.session = { act: 'addtgt' };
-    await ctx.reply('Kirim target:\n@username\nhttps://t.me/xxx\n-1001234567890');
-  });
-  
-  // Rename: sebelumnya '🔄 Ambil Semua'
-  bot.hears('🖇️ Ambil Semua', async (ctx) => {
-    const a = getAcc(ctx.from.id);
-    if (!a) return ctx.reply('❌ Login dulu');
-    try {
-      const count = await a.addAll();
-      await ctx.reply(`✅ Berhasil mengambil ${count} target.`, { reply_markup: targetMenu(a) });
-    } catch {
-      await ctx.reply('❌ Gagal mengambil target.');
-    }
-  });
-
-  bot.hears('📋 List Target', async (ctx) => {
-    const a = getAcc(ctx.from.id);
-    if (!a) return ctx.reply('❌ Login dulu');
-    if (!a.targets.size) return ctx.reply('❌ Daftar target kosong.');
-    let text = `📋 Target (${a.targets.size}):\n\n`;
-    let i = 1;
-    for (const [, target] of a.targets) {
-      text += `${i}. ${target.title}\n`;
-      i++;
-      if (i > 20) { text += `\n...dan ${a.targets.size - 20} lainnya.`; break; }
-    }
-    await ctx.reply(text);
-  });
-
-  bot.hears('🗑️ Hapus Target', async (ctx) => {
-    const a = getAcc(ctx.from.id);
-    if (!a) return ctx.reply('❌ Login dulu');
-    if (!a.targets.size) return ctx.reply('ℹ️ Daftar target manual kosong, tidak ada yang bisa dihapus.');
-    const { text, reply_markup, parse_mode } = createTargetDeleteList(ctx);
-    await ctx.reply(text, { reply_markup, parse_mode });
-  });
-  
-  bot.callbackQuery(/del_tgt_(.+)/, async (ctx) => {
-    const targetId = ctx.match[1];
-    const a = getAcc(ctx.from.id);
-    if (a && a.targets.has(targetId)) {
-      a.targets.delete(targetId);
-      await ctx.answerCallbackQuery({ text: `✅ Target dihapus.` });
-      const { text, reply_markup, parse_mode } = createTargetDeleteList(ctx);
-      await ctx.editMessageText(text, { reply_markup, parse_mode });
+    if (ctx.message.text === '🚀 Jalankan Ubot') {
+      if (!a.msgs.length) return ctx.reply('❌ Anda belum menambah pesan.');
+      if (!a.all && !a.targets.size) return ctx.reply('❌ Anda belum menambah target.');
+      a.start(bot.api);
+      await ctx.reply('✅ Ubot dijalankan.');
     } else {
-      await ctx.answerCallbackQuery({ text: '❌ Target sudah tidak ada.', show_alert: true });
+      a.stop();
+      await ctx.reply('🛑 Ubot dihentikan.');
+    }
+    const menu = mainMenu(ctx);
+    await ctx.reply(menu.text, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
+  });
+
+  bot.hears('⚙️ Settings', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    await ctx.reply('⚙️ Pengaturan', { reply_markup: settingMenu(a) });
+  });
+
+  bot.hears(/^(🔗 Jeda Antar Grup|⛓️ Jeda Per Semua Grup): .+/, async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    if (ctx.message.text.startsWith('🔗 Jeda Antar Grup')) {
+      ctx.session = { act: 'setdelay' };
+      await ctx.reply('Masukkan jeda antar grup (detik, 1-3600):');
+    } else {
+      ctx.session = { act: 'setdelayall' };
+      await ctx.reply('Masukkan jeda semua grup (menit, 1-1440, disarankan ≥20):');
     }
   });
-  
-  bot.callbackQuery('delete_all_targets', async (ctx) => {
+
+  bot.hears('🔄 Ganti Mode Jeda', async (ctx) => {
     const a = getAcc(ctx.from.id);
-    if (a) {
-      a.targets.clear();
-      await ctx.answerCallbackQuery({ text: '✅ Semua target berhasil dihapus.', show_alert: true });
-      const { text, reply_markup, parse_mode } = createTargetDeleteList(ctx);
-      await ctx.editMessageText(text, { reply_markup, parse_mode });
-    }
+    if (!a) return ctx.reply('❌ Login dulu');
+    await ctx.reply('Pilih mode jeda:', { reply_markup: jedaMenu() });
+  });
+
+  bot.hears('🔗 Jeda Antar Grup', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    a.delayMode = 'antar';
+    await ctx.reply('✅ Mode diubah ke Jeda Antar Grup.', { reply_markup: settingMenu(a) });
+  });
+
+  bot.hears('⛓️ Jeda Per Semua Grup', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    a.delayMode = 'semua';
+    await ctx.reply('✅ Mode diubah ke Jeda Semua Grup.', { reply_markup: settingMenu(a) });
+  });
+
+  // Waktu Mulai (sudah cocok dengan label baru)
+  bot.hears(/🕒 Waktu Mulai:.*$/, async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    ctx.session = { act: 'setstart' };
+    await ctx.reply('Kirim Waktu Mulai (HH:MM) atau "-" untuk hapus.');
+  });
+
+  // Waktu Stop: label di menu sekarang '🕝 Waktu Stop:' (update regex)
+  bot.hears(/🕝 Waktu Stop:.*$/, async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    ctx.session = { act: 'setstop' };
+    await ctx.reply('Kirim Waktu Stop (HH:MM) atau "-" untuk hapus.');
+  });
+
+  bot.hears('📈 Lihat Statistik', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.reply('❌ Login dulu');
+    const uptime = a.stats.start ? Math.floor((Date.now() - a.stats.start) / 1000) : 0;
+    const fmt = s => s > 3600 ? `${Math.floor(s/3600)}j ${Math.floor(s%3600/60)}m`
+      : s > 60 ? `${Math.floor(s/60)}m ${s%60}s` : `${s}s`;
+    const text = `📊 Status
+🔄 Status: ${a.running ? 'Berjalan' : 'Berhenti'}
+🕒 Waktu Mulai: ${a.startTime || '-'}
+🕝 Waktu Stop: ${a.stopTime || '-'}
+⏱️ Uptime: ${a.stats.start ? fmt(uptime) : '-'}
+✅ Terkirim: ${a.stats.sent}
+❌ Gagal: ${a.stats.failed}
+⏭️ Dilewati: ${a.stats.skip}`;
+    await ctx.reply(text, { reply_markup: new InlineKeyboard().text('🔄 Refresh', 'STAT').text('Tutup', 'delete_this') });
+  });
+
+  bot.callbackQuery('STAT', async (ctx) => {
+    const a = getAcc(ctx.from.id);
+    if (!a) return ctx.answerCallbackQuery('❌ Login dulu', { show_alert: true });
+    const uptime = a.stats.start ? Math.floor((Date.now() - a.stats.start) / 1000) : 0;
+    const fmt = s => s > 3600 ? `${Math.floor(s/3600)}j ${Math.floor(s%3600/60)}m`
+      : s > 60 ? `${Math.floor(s/60)}m ${s%60}s` : `${s}s`;
+    const text = `📊 Status
+🔄 Status: ${a.running ? 'Berjalan' : 'Berhenti'}
+🕒 Waktu Mulai: ${a.startTime || '-'}
+🕝 Waktu Stop: ${a.stopTime || '-'}
+⏱️ Uptime: ${a.stats.start ? fmt(uptime) : '-'}
+✅ Terkirim: ${a.stats.sent}
+❌ Gagal: ${a.stats.failed}
+⏭️ Dilewati: ${a.stats.skip}`;
+    try {
+      await ctx.editMessageText(text, { reply_markup: new InlineKeyboard().text('🔄 Refresh', 'STAT').text('Tutup', 'delete_this') });
+    } catch {}
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery('delete_this', async (ctx) => {
+    await ctx.deleteMessage();
+    await ctx.answerCallbackQuery();
   });
 };
