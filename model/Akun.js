@@ -196,14 +196,20 @@ class Akun {
         const target = list[this.idx++];
         const msg = this.msgs[this.msgIdx];
         
-        await this.client.sendMessage(target.id || target, {message: msg});
-        this.stats.sent++;
-      } catch(e) {
-        this.stats.failed++;
-        if (e.message?.includes('FLOOD_WAIT')) {
-          const wait = +(e.message.match(/\d+/)?.[0] || 60);
-          if (botApi) botApi.sendMessage(this.uid, `⚠️ Limit ${wait}s`);
-        }
+        const msgObj = await this.ensureMsgObject(this.msgIdx OR index_yang_sesuai);
+          if (!msgObj) { this.stats.skip++; return; }
+          try {
+             await this.client.forwardMessages(target.id || target, {
+             fromPeer: msgObj.chatId,
+             id: [msgObj.messageId]
+           });
+           this.stats.sent++;
+        } catch(e) {
+          this.stats.failed++;
+          if (e.message?.includes('FLOOD_WAIT')) {
+             const wait = +(e.message.match(/\d+/)?.[0] || 60);
+             botApi && botApi.sendMessage(this.uid, `⚠️ Limit ${wait}s`);
+          }
       }
     };
     
@@ -331,5 +337,6 @@ class Akun {
 }
 
 module.exports = Akun
+
 
 
