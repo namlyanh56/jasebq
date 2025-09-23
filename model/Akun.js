@@ -89,7 +89,7 @@ class Akun {
           // Hapus loading sebelum prompt OTP
           this._safeDeleteLoading(ctx);
           const { InlineKeyboard } = require('grammy');
-          ctx.reply('*Silakan kirim kode OTP yang masuk*.
+          ctx.reply('*Silakan kirim kode OTP yang masuk*'.
 Gunakan spasi untuk memisahkan setiap angka, (contoh: 2 4 5 6 3)', {
             reply_markup: new InlineKeyboard().text('❌ Batal', `cancel_${this.uid}`)
           }).then(msg => this.pendingMsgId = msg.message_id);
@@ -474,4 +474,5 @@ Gunakan spasi untuk memisahkan setiap angka, (contoh: 2 4 5 6 3)', {
 }
 
 module.exports = Akun;
+
 
