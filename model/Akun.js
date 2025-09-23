@@ -10,32 +10,44 @@ class Akun {
     this.name = '';
     this.authed = false;
 
-    // this.msgs berisi campuran:
-    //  - String  -> pesan biasa (akan diconvert menjadi sendMessage)
-    //  - Object forward -> { src:<botApiChatId>, mid:<messageId>, text:<preview> }
+    // Pesan (campuran string atau object forward {src, mid, text})
     this.msgs = [];
 
+    // Target
     this.targets = new Map();
     this.all = false;
 
-    this.delay = 5;           // detik (mode antar)
-    this.delayMode = 'antar'; // 'antar' | 'semua'
-    this.delayAllGroups = 20; // menit (mode semua)
-    this.startAfter = 0;      // menit tunda
-    this.stopAfter = 0;       // menit auto-stop
+    // MODE JEDA (tetap dipertahankan)
+    this.delayMode = 'antar';   // 'antar' | 'semua'
+    this.delay = 5;             // detik antar target
+    this.delayAllGroups = 20;   // menit antar “batch semua grup”
 
+    // (Legacy, tidak dipakai lagi di UI – dibiarkan agar tidak rusak)
+    this.startAfter = 0;        // menit (legacy)
+    this.stopAfter = 0;         // menit (legacy)
+
+    // Waktu Mulai & Stop (fitur baru, HH:MM atau null)
+    this.startTime = null;      // string 'HH:MM' atau null
+    this.stopTime = null;       // string 'HH:MM' atau null
+    this.stopTimestamp = null;  // number (ms) ketika harus stop
+    this._startTimer = null;
+    this._stopTimer = null;
+
+    // Status runtime
     this.running = false;
     this.timer = null;
-    this.idx = 0;
-    this.msgIdx = 0;
+    this.idx = 0;      // index target (mode antar)
+    this.msgIdx = 0;   // index pesan
 
     this.stats = { sent: 0, failed: 0, skip: 0, start: 0 };
 
+    // Login flow
     this.pendingCode = null;
     this.pendingPass = null;
     this.pendingMsgId = null;
 
-    this._sourceCache = new Map(); // cache entity sumber forward
+    // Cache sumber forward
+    this._sourceCache = new Map();
   }
 
   async init() {
@@ -50,7 +62,6 @@ class Akun {
   async login(ctx, phone) {
     await this.init();
     if (!this.client) return ctx.reply('❌ Gagal init client.');
-
     try {
       await this.client.start({
         phoneNumber: () => phone,
@@ -83,6 +94,7 @@ class Akun {
         reply_markup: menu.reply_markup,
         parse_mode: menu.parse_mode
       });
+
     } catch (e) {
       this.cleanup(ctx);
       ctx.reply(`❌ Login gagal: ${e.message}`);
@@ -118,14 +130,113 @@ class Akun {
     this.cleanup(ctx);
   }
 
-  // Konversi Bot API chat id -> internal MTProto id
+  // ===== Util waktu =====
+  _timeToTimestamp(hhmm) {
+    if (!/^([01]?\d|2[0-3]):([0-5]\d)$/.test(hhmm)) return null;
+    const [h, m] = hhmm.split(':').map(n => parseInt(n, 10));
+    const now = new Date();
+    const ts = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      h,
+      m,
+      0,
+      0
+    ).getTime();
+    return ts;
+  }
+
+  _clearTimers() {
+    if (this._startTimer) {
+      clearTimeout(this._startTimer);
+      this._startTimer = null;
+    }
+    if (this._stopTimer) {
+      clearTimeout(this._stopTimer);
+      this._stopTimer = null;
+    }
+  }
+
+  // ===== Start public =====
+  start(botApi) {
+    // Jika sudah berjalan
+    if (this.running || this._startTimer) return;
+
+    // Validasi keberadaan pesan & target
+    if (!this.msgs.length) {
+      botApi && botApi.sendMessage(this.uid, '❌ Tidak ada pesan.');
+      return;
+    }
+    if (!this.targets.size && !this.all) {
+      botApi && botApi.sendMessage(this.uid, '❌ Tidak ada target.');
+      return;
+    }
+
+    // Jika punya startTime & masih di depan
+    if (this.startTime) {
+      const ts = this._timeToTimestamp(this.startTime);
+      if (ts && ts > Date.now() + 1500) {
+        const waitMs = ts - Date.now();
+        botApi && botApi.sendMessage(this.uid, `⏳ Akan mulai pada ${this.startTime} (dalam ${(waitMs/60000).toFixed(1)} m)`);
+        this._startTimer = setTimeout(() => {
+          this._startTimer = null;
+          this._doStart(botApi);
+        }, waitMs);
+        return;
+      }
+      // Jika sudah lewat → langsung mulai
+    }
+
+    this._doStart(botApi);
+  }
+
+  // Internal start
+  _doStart(botApi) {
+    if (this.running) return;
+    this.running = true;
+    this.stats = { sent: 0, failed: 0, skip: 0, start: Date.now() };
+    this.idx = 0;
+    this.msgIdx = 0;
+    this.stopTimestamp = null;
+
+    // Jadwalkan stopTime kalau valid & di depan
+    if (this.stopTime) {
+      const st = this._timeToTimestamp(this.stopTime);
+      if (st && st > Date.now()) {
+        this.stopTimestamp = st;
+        const diff = st - Date.now();
+        this._stopTimer = setTimeout(() => {
+          this.stop();
+          botApi && botApi.sendMessage(this.uid, `🛑 Berhenti otomatis (Waktu Stop ${this.stopTime}).`);
+        }, diff);
+      } else {
+        botApi && botApi.sendMessage(this.uid, `⚠️ Waktu Stop (${this.stopTime}) sudah lewat, diabaikan.`);
+      }
+    }
+
+    // Mulai mode yang dipilih
+    if (this.delayMode === 'semua') this._broadcastAllGroups(botApi);
+    else this._broadcastBetweenGroups(botApi);
+  }
+
+  stop() {
+    this._clearTimers();
+    this.running = false;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+
+  // ===== ID / Forward util =====
   botToInternal(botId) {
     try {
       const n = BigInt(botId);
       if (n >= 0n) return n;
       const abs = -n;
       if (String(abs).startsWith('100')) return abs - 1000000000000n; // -100xxxxxxxxxx
-      return abs; // group biasa (-xxxxxxxxx)
+      return abs;
     } catch {
       return null;
     }
@@ -146,7 +257,6 @@ class Akun {
 
   async forwardOrCopy(msg, targetEntity, botApi, tag) {
     if (typeof msg === 'string') {
-      // Copy biasa
       try {
         await this.client.sendMessage(targetEntity, { message: msg });
         this.stats.sent++;
@@ -156,8 +266,6 @@ class Akun {
       }
       return;
     }
-
-    // Jika object: asumsi forward record {src, mid, text}
     if (msg && typeof msg === 'object' && typeof msg.mid === 'number' && msg.src !== undefined) {
       try {
         const srcEnt = await this.getSourceEntity(msg.src);
@@ -169,9 +277,8 @@ class Akun {
         this.stats.sent++;
       } catch (e) {
         console.error(`[${tag}] FORWARD_FAIL ${e.message} -> fallback copy`);
-        // fallback copy supaya tetap ada output
         try {
-          await this.client.sendMessage(targetEntity, { message: msg.text || msg.preview || '[Pesan]' });
+          await this.client.sendMessage(targetEntity, { message: msg.text || '[Forward]' });
           this.stats.sent++;
         } catch (e2) {
           this.stats.failed++;
@@ -182,74 +289,50 @@ class Akun {
           }
         }
       }
-    } else {
-      // Format legacy aneh -> treat sebagai teks
-      try {
-        const txt = msg?.preview || '[Pesan]';
-        await this.client.sendMessage(targetEntity, { message: txt });
-        this.stats.sent++;
-      } catch (e) {
-        this.stats.failed++;
-        console.error(`[${tag}] LEGACY_COPY_FAIL`, e.message);
-      }
-    }
-  }
-
-  start(botApi) {
-    if (this.running) return;
-    if (!this.msgs.length) {
-      botApi && botApi.sendMessage(this.uid, '❌ Tidak ada pesan.');
       return;
     }
-    if (!this.targets.size && !this.all) {
-      botApi && botApi.sendMessage(this.uid, '❌ Tidak ada target.');
-      return;
+    // Legacy object tanpa struktur jelas
+    try {
+      const txt = msg?.preview || '[Pesan]';
+      await this.client.sendMessage(targetEntity, { message: txt });
+      this.stats.sent++;
+    } catch (e) {
+      this.stats.failed++;
+      console.error(`[${tag}] LEGACY_COPY_FAIL`, e.message);
     }
-
-    this.running = true;
-    this.stats = { sent: 0, failed: 0, skip: 0, start: Date.now() };
-    this.idx = 0;
-    this.msgIdx = 0;
-
-    if (this.delayMode === 'semua') this.broadcastAllGroups(botApi);
-    else this.broadcastBetweenGroups(botApi);
   }
 
-  stop() {
-    this.running = false;
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
+  // ===== Broadcasting =====
+  async _tickStopCheck(botApi) {
+    if (this.stopTimestamp && Date.now() >= this.stopTimestamp) {
+      this.stop();
+      botApi && botApi.sendMessage(this.uid, `🛑 Berhenti (Stop Time).`);
+      return true;
+    }
+    return false;
   }
 
-  // Broadcast mode "semua": satu pesan ke semua target per siklus
-  broadcastAllGroups(botApi) {
+  _broadcastAllGroups(botApi) {
     const tick = async () => {
       if (!this.running) return;
-      if (this.stopAfter > 0 && Date.now() - this.stats.start >= this.stopAfter * 60000) {
-        this.stop();
-        botApi && botApi.sendMessage(this.uid, '⏰ Auto stop');
-        return;
-      }
-      if (!this.msgs.length || !this.targets.size) {
-        this.stats.skip++;
-        return;
-      }
+      if (await this._tickStopCheck(botApi)) return;
 
+      if (!this.msgs.length || !this.targets.size) { this.stats.skip++; return; }
       if (this.msgIdx >= this.msgs.length) this.msgIdx = 0;
       const msg = this.msgs[this.msgIdx++];
-
       const targets = Array.from(this.targets.values());
+
       for (const t of targets) {
         let ent = t.entity;
         if (!ent) {
-            try {
-              ent = await this.client.getEntity(t.id);
-              t.entity = ent;
-            } catch (e) {
-              this.stats.failed++;
-              console.error('[ALL] TARGET_RESOLVE_FAIL', t.id, e.message);
-              continue;
-            }
+          try {
+            ent = await this.client.getEntity(t.id);
+            t.entity = ent;
+          } catch (e) {
+            this.stats.failed++;
+            console.error('[ALL] TARGET_RESOLVE_FAIL', t.id, e.message);
+            continue;
+          }
         }
         if (!/Channel|Chat/i.test(ent.className) || /Forbidden$/i.test(ent.className)) {
           this.stats.skip++;
@@ -263,27 +346,16 @@ class Akun {
       this.timer = setInterval(tick, this.delayAllGroups * 60000);
       tick();
     };
-    if (this.startAfter > 0) {
-      botApi && botApi.sendMessage(this.uid, `⏳ Mulai dalam ${this.startAfter}m`);
-      setTimeout(run, this.startAfter * 60000);
-    } else run();
+    run();
   }
 
-  // Broadcast mode "antar": rotasi target satu per satu
-  broadcastBetweenGroups(botApi) {
+  _broadcastBetweenGroups(botApi) {
     const tick = async () => {
       if (!this.running) return;
-      if (this.stopAfter > 0 && Date.now() - this.stats.start >= this.stopAfter * 60000) {
-        this.stop();
-        botApi && botApi.sendMessage(this.uid, '⏰ Auto stop');
-        return;
-      }
+      if (await this._tickStopCheck(botApi)) return;
 
       const targets = Array.from(this.targets.values());
-      if (!targets.length || !this.msgs.length) {
-        this.stats.skip++;
-        return;
-      }
+      if (!targets.length || !this.msgs.length) { this.stats.skip++; return; }
 
       if (this.idx >= targets.length) {
         this.idx = 0;
@@ -301,7 +373,7 @@ class Akun {
           target.entity = ent;
         } catch (e) {
           this.stats.failed++;
-          console.error('[BETWEEN] TARGET_RESOLVE_FAIL', target.id, e.message);
+            console.error('[BETWEEN] TARGET_RESOLVE_FAIL', target.id, e.message);
           return;
         }
       }
@@ -316,12 +388,10 @@ class Akun {
       this.timer = setInterval(tick, this.delay * 1000);
       tick();
     };
-    if (this.startAfter > 0) {
-      botApi && botApi.sendMessage(this.uid, `⏳ Mulai dalam ${this.startAfter}m`);
-      setTimeout(run, this.startAfter * 60000);
-    } else run();
+    run();
   }
 
+  // ===== Target Management =====
   async addTargets(text) {
     const inputs = text.split(/\s+/).filter(Boolean);
     let success = 0;
@@ -332,17 +402,15 @@ class Akun {
         if (t.startsWith('https://t.me/')) t = t.replace('https://t.me/', '');
         if (t.startsWith('@')) t = t.slice(1);
 
-        // Invite link private
+        // Invite link privat
         if (t.startsWith('+') || t.startsWith('joinchat/')) {
           let hash = t.startsWith('+') ? t.slice(1) : t.split('joinchat/')[1];
           hash = hash.split('?')[0];
-
           let chatEntity = null;
           try {
             const info = await this.client.invoke(new Api.messages.CheckChatInvite({ hash }));
-            if (info.className === 'ChatInviteAlready') {
-              chatEntity = info.chat;
-            } else if (info.className === 'ChatInvite') {
+            if (info.className === 'ChatInviteAlready') chatEntity = info.chat;
+            else if (info.className === 'ChatInvite') {
               const upd = await this.client.invoke(new Api.messages.ImportChatInvite({ hash }));
               chatEntity = upd.chats?.[0];
             }
@@ -354,14 +422,9 @@ class Akun {
               throw e;
             }
           }
-
           if (chatEntity) {
             const idStr = String(chatEntity.id);
-            this.targets.set(idStr, {
-              id: chatEntity.id,
-              title: chatEntity.title || idStr,
-              entity: chatEntity
-            });
+            this.targets.set(idStr, { id: chatEntity.id, title: chatEntity.title || idStr, entity: chatEntity });
             success++;
           } else {
             this.targets.set(original, { id: original, title: `${original} (gagal ambil)`, entity: null });
@@ -373,11 +436,7 @@ class Akun {
         if (/^[A-Za-z0-9_]{5,}$/.test(t)) {
           const ent = await this.client.getEntity(t);
           const idStr = String(ent.id);
-          this.targets.set(idStr, {
-            id: ent.id,
-            title: ent.title || ent.firstName || ent.username || idStr,
-            entity: ent
-          });
+          this.targets.set(idStr, { id: ent.id, title: ent.title || ent.firstName || ent.username || idStr, entity: ent });
           success++;
           continue;
         }
@@ -387,16 +446,11 @@ class Akun {
           const big = BigInt(t);
           const ent = await this.client.getEntity(big);
           const idStr = String(ent.id);
-          this.targets.set(idStr, {
-            id: ent.id,
-            title: ent.title || ent.firstName || idStr,
-            entity: ent
-          });
+          this.targets.set(idStr, { id: ent.id, title: ent.title || ent.firstName || idStr, entity: ent });
           success++;
           continue;
         }
 
-        // Format lain
         this.targets.set(original, { id: original, title: `${original} (format tidak dikenali)`, entity: null });
       } catch (err) {
         this.targets.set(raw, { id: raw, title: `${raw} (error: ${err.message})`, entity: null });
