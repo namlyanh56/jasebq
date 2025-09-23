@@ -2,10 +2,30 @@ const { InlineKeyboard } = require('grammy');
 const { getAcc } = require('../utils/helper');
 const { pesanMenu } = require('../utils/menu');
 
+// Snippet robust: dukung
+// - string (pesan biasa)
+// - object forward {src, mid, text}
+// - object lama {preview}
+// - fallback media/forward tanpa text
 const snippet = (m) => {
   if (!m) return '(kosong)';
-  if (typeof m === 'string') return m.slice(0, 40) + (m.length > 40 ? '...' : '');
-  return (m.preview || '').slice(0, 40) + ((m.preview || '').length > 40 ? '...' : '');
+
+  if (typeof m === 'string') {
+    const t = m.trim();
+    if (!t) return '(kosong)';
+    return t.length > 40 ? t.slice(0, 40) + '...' : t;
+  }
+
+  if (typeof m === 'object') {
+    // Prioritas: text -> preview -> placeholder forward/media
+    let base =
+      (typeof m.text === 'string' && m.text.trim()) ? m.text.trim()
+      : (typeof m.preview === 'string' && m.preview.trim()) ? m.preview.trim()
+      : (m.mid !== undefined ? `[Forward ${m.mid}]` : '[Pesan]');
+    return base.length > 40 ? base.slice(0, 40) + '...' : base;
+  }
+
+  return '(unknown)';
 };
 
 const createDeleteList = (ctx) => {
@@ -66,9 +86,7 @@ module.exports = (bot) => {
       a.msgs.splice(index, 1);
       await ctx.answerCallbackQuery({ text: `✅ Dihapus.` });
       const { text, reply_markup, parse_mode } = createDeleteList(ctx);
-      try {
-        await ctx.editMessageText(text, { reply_markup, parse_mode });
-      } catch {}
+      try { await ctx.editMessageText(text, { reply_markup, parse_mode }); } catch {}
     } else {
       await ctx.answerCallbackQuery({ text: '❌ Sudah tidak ada.', show_alert: true });
     }
