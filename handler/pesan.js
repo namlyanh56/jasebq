@@ -2,29 +2,20 @@ const { InlineKeyboard } = require('grammy');
 const { getAcc } = require('../utils/helper');
 const { pesanMenu } = require('../utils/menu');
 
-// Snippet robust: dukung
-// - string (pesan biasa)
-// - object forward {src, mid, text}
-// - object lama {preview}
-// - fallback media/forward tanpa text
 const snippet = (m) => {
   if (!m) return '(kosong)';
-
   if (typeof m === 'string') {
     const t = m.trim();
     if (!t) return '(kosong)';
     return t.length > 40 ? t.slice(0, 40) + '...' : t;
   }
-
   if (typeof m === 'object') {
-    // Prioritas: text -> preview -> placeholder forward/media
     let base =
       (typeof m.text === 'string' && m.text.trim()) ? m.text.trim()
       : (typeof m.preview === 'string' && m.preview.trim()) ? m.preview.trim()
       : (m.mid !== undefined ? `[Forward ${m.mid}]` : '[Pesan]');
     return base.length > 40 ? base.slice(0, 40) + '...' : base;
   }
-
   return '(unknown)';
 };
 
@@ -56,11 +47,14 @@ module.exports = (bot) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
     ctx.session = { act: 'addmsg' };
-    await ctx.reply('*Silakan kirim pesan yang akan dibroadcast.*
+    await ctx.reply(
+      `*Silakan kirim pesan yang akan dibroadcast.*
 Untuk menampilkan emoji premium, pesan tersebut harus di-forward dari chat atau grup.
 *⚠️ Saat ini belum mendukung media.*
 
-_Ada kendala? Hubungi: @JaeHype_');
+_Ada kendala? Hubungi: @JaeHype_`,
+      { parse_mode: 'Markdown' }
+    );
   });
 
   bot.hears('📋 List Pesan', async (ctx) => {
@@ -71,7 +65,7 @@ _Ada kendala? Hubungi: @JaeHype_');
     a.msgs.forEach((m, i) => {
       out += `${i + 1}. ${snippet(m)}\n`;
     });
-    await ctx.reply(out);
+    await ctx.reply(out, { parse_mode: 'Markdown' });
   });
 
   bot.hears('🗑️ Hapus Pesan', async (ctx) => {
@@ -111,4 +105,3 @@ _Ada kendala? Hubungi: @JaeHype_');
     await ctx.answerCallbackQuery();
   });
 };
-
