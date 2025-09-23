@@ -3,6 +3,7 @@ const { mainMenu, allCommandNames, settingMenu } = require('../utils/menu');
 
 module.exports = async (ctx) => {
   const text = ctx.message.text?.trim();
+
   if (allCommandNames && allCommandNames.has(text)) return;
 
   const u = getUser(ctx.from.id);
@@ -12,7 +13,7 @@ module.exports = async (ctx) => {
 
   if (!a && ctx.session?.act && ctx.session.act !== 'phone') {
     ctx.session = null;
-    return ctx.reply('❌ Aksi dibatalkan. Silakan login.');
+    return ctx.reply('❌ Aksi dibatalkan. Silakan login dulu.');
   }
 
   if (ctx.session?.mid) {
@@ -36,23 +37,20 @@ module.exports = async (ctx) => {
       const m = ctx.message;
       try {
         if (m.forward_from_chat && m.forward_from_message_id) {
-          // Forward dari grup/channel
-          // Cek apakah tipe chat cocok (channel / supergroup)
-          // Kalau caption/teks ada, kita tetap simpan objek forward
-          let chatIdBot = m.forward_from_chat.id; // Bot API style (-100xxxx)
-          // Simpan dalam bentuk "raw", nanti di ensureMsgObject kita butuh chatId internal.
+          // Pesan forward dari channel/grup → disimpan untuk forward asli.
           a.msgs.push({
-            chatId: chatIdBot,            // akan dikonversi saat forward
+            type: 'forward',
+            chatId: m.forward_from_chat.id,              // Bot API chat id (nanti dikonversi)
             messageId: m.forward_from_message_id,
-            preview: (m.text || m.caption || '').slice(0, 60),
-            forwarded: true               // flag
+            preview: (m.text || m.caption || '').slice(0, 200)
           });
-          await ctx.reply('✅ Disimpan (forward asli). Pastikan userbot sudah join ke grup sumber.');
+          await ctx.reply('✅ Disimpan (forward akan di-forward asli). Pastikan userbot sudah join sumber.');
         } else if (m.text || m.caption) {
+          // Teks biasa → disimpan string saja (copy paste)
           a.msgs.push(m.text || m.caption);
-          await ctx.reply('✅ Disimpan (teks).');
+          await ctx.reply('✅ Disimpan (teks akan di-copy).');
         } else {
-          await ctx.reply('⚠️ Media non-forward belum didukung. Forward langsung dari sumber atau kirim teks.');
+          await ctx.reply('⚠️ Media non-forward belum didukung. Forward langsung dari grup/channel agar bisa di-broadcast.');
         }
       } catch (e) {
         await ctx.reply('❌ Gagal simpan: ' + (e.message || e));
@@ -72,11 +70,11 @@ module.exports = async (ctx) => {
         await ctx.reply(
           count
             ? `✅ ${count} target grup/channel valid ditambah`
-            : '⚠️ Tidak ada target grup/channel valid (user / gagal tetap dicatat).',
+            : '⚠️ Tidak ada target grup valid (yang gagal tetap dicatat).',
           { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode }
         );
       } catch (e) {
-        await ctx.reply(`❌ Gagal menambah target: ${e.message}`);
+        await ctx.reply('❌ Gagal menambah target: ' + e.message);
       }
     },
 
@@ -86,7 +84,9 @@ module.exports = async (ctx) => {
         a.delay = v;
         a.delayMode = 'antar';
         await ctx.reply(`✅ Jeda Antar Grup: ${v}s`, { reply_markup: settingMenu(a) });
-      } else ctx.reply('❌ Masukkan angka 1-3600.');
+      } else {
+        await ctx.reply('❌ Masukkan angka 1-3600.');
+      }
     },
 
     setdelayall: async () => {
@@ -95,10 +95,12 @@ module.exports = async (ctx) => {
         a.delayAllGroups = v;
         a.delayMode = 'semua';
         await ctx.reply(
-          `✅ Jeda Semua Grup: ${v}m${v < 20 ? '\n⚠️ Disarankan >= 20m untuk hindari limit.' : ''}`,
+          `✅ Jeda Semua Grup: ${v} menit${v < 20 ? '\n⚠️ Disarankan ≥ 20 menit untuk hindari limit.' : ''}`,
           { reply_markup: settingMenu(a), parse_mode: 'Markdown' }
         );
-      } else ctx.reply('❌ Masukkan angka 1-1440.');
+      } else {
+        await ctx.reply('❌ Masukkan angka 1-1440.');
+      }
     },
 
     setstart: async () => {
@@ -106,7 +108,9 @@ module.exports = async (ctx) => {
       if (v >= 0 && v <= 1440) {
         a.startAfter = v;
         await ctx.reply(`✅ Tunda mulai: ${v}m`, { reply_markup: settingMenu(a) });
-      } else ctx.reply('❌ Masukkan angka 0-1440.');
+      } else {
+        await ctx.reply('❌ Masukkan angka 0-1440.');
+      }
     },
 
     setstop: async () => {
@@ -114,7 +118,9 @@ module.exports = async (ctx) => {
       if (v >= 0 && v <= 1440) {
         a.stopAfter = v;
         await ctx.reply(`✅ Stop otomatis: ${v}m`, { reply_markup: settingMenu(a) });
-      } else ctx.reply('❌ Masukkan angka 0-1440.');
+      } else {
+        await ctx.reply('❌ Masukkan angka 0-1440.');
+      }
     }
   };
 
