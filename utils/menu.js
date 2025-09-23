@@ -87,20 +87,14 @@ const helpCommand = async (ctx) => {
   const text = `✨*Ubot Panorama*✨
 Gunakan untuk mengirim pesan terjadwal ke banyak grup.
 
-
-
 *Langkah cepat:*
 1. Buat sesi: 🤖 Buat Userbot & login
-2. Tambah pesan: ✉️ Kelola Pesan → ➕
-3. Tambah target: 📚 Kelola Target → ➕ / Ambil Semua
+2. Tambah pesan: ✉️ Kelola Pesan 
+3. Tambah target: 📚 Kelola Target/ Ambil Semua
 4. Jalankan: 🚀 Jalankan Ubot
-
-
 
 ⚠️* Bot ini gratis, gunakan sebaik-baiknya. Masih ada kekurangan. 
 Kalau ingin versi lebih lengkap dan canggih, bisa pindah versi berbayar. Terima kasih atas pengertiannya!*
-
-
 
 Kontak: @JaeHype
 Channel Update: @PanoramaaStore`;
@@ -121,4 +115,5 @@ module.exports = {
   startCommand,
   helpCommand
 };
+
 
