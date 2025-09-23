@@ -1,6 +1,44 @@
 const { InlineKeyboard } = require('grammy');
-const { getAcc } = require('../utils/helper');
+const { getAcc, getUser } = require('../utils/helper');
 const { mainMenu, settingMenu, jedaMenu } = require('../utils/menu');
+
+function formatHHMM(hhmm) {
+  if (!hhmm || !/^([01]?\d|2[0-3]):([0-5]\d)$/.test(hhmm)) return '00:00';
+  // Normalisasi ke 2 digit
+  const [h, m] = hhmm.split(':');
+  return `${h.padStart(2,'0')}:${m.padStart(2,'0')}`;
+}
+
+function buildStatsText(ctx, a) {
+  const u = getUser(ctx.from.id);
+  const userId = ctx.from.id;
+  const delayStr = a.delayMode === 'semua'
+    ? `${a.delayAllGroups} Menit`
+    : `${a.delay} Detik`;
+
+  const startStr = formatHHMM(a.startTime);
+  const stopStr  = formatHHMM(a.stopTime);
+
+  const grupCount = a.targets.size;
+  const msgCount  = a.msgs.length;
+  const akunCount = u.accounts.size;
+
+  const gagal = a.stats.failed || 0;
+  const sukses = a.stats.sent || 0;
+
+  return `🏷 UserID : ${userId}
+
+⏳ Delay  : ${delayStr}
+⏰ Timer  : (Start - ${startStr})_(Stop - ${stopStr})
+🎄 Grup   : ${grupCount}
+🧩 List   : ${msgCount}
+👥 Akun   : ${akunCount}
+
+📮 Pesan Gagal     : ${gagal}
+📚 Pesan Berhasil  : ${sukses}
+
+*ada pertanyaan? bisa tanya @JaeHype*`;
+}
 
 module.exports = (bot) => {
   bot.hears(['🚀 Jalankan Ubot', '⛔ Hentikan Ubot'], async (ctx) => {
@@ -57,7 +95,7 @@ module.exports = (bot) => {
     await ctx.reply('✅ Mode diubah ke Jeda Semua Grup.', { reply_markup: settingMenu(a) });
   });
 
-  // Waktu Mulai (sudah cocok dengan label baru)
+  // Waktu Mulai
   bot.hears(/🕒 Waktu Mulai:.*$/, async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
@@ -65,7 +103,7 @@ module.exports = (bot) => {
     await ctx.reply('Kirim Waktu Mulai (HH:MM) atau "-" untuk hapus.');
   });
 
-  // Waktu Stop: label di menu sekarang '🕝 Waktu Stop:' (update regex)
+  // Waktu Stop (label baru: 🕝)
   bot.hears(/🕝 Waktu Stop:.*$/, async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
@@ -73,45 +111,36 @@ module.exports = (bot) => {
     await ctx.reply('Kirim Waktu Stop (HH:MM) atau "-" untuk hapus.');
   });
 
+  // Statistik – FORMAT BARU
   bot.hears('📈 Lihat Statistik', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.reply('❌ Login dulu');
-    const uptime = a.stats.start ? Math.floor((Date.now() - a.stats.start) / 1000) : 0;
-    const fmt = s => s > 3600 ? `${Math.floor(s/3600)}j ${Math.floor(s%3600/60)}m`
-      : s > 60 ? `${Math.floor(s/60)}m ${s%60}s` : `${s}s`;
-    const text = `📊 Status
-🔄 Status: ${a.running ? 'Berjalan' : 'Berhenti'}
-🕒 Waktu Mulai: ${a.startTime || '-'}
-🕝 Waktu Stop: ${a.stopTime || '-'}
-⏱️ Uptime: ${a.stats.start ? fmt(uptime) : '-'}
-✅ Terkirim: ${a.stats.sent}
-❌ Gagal: ${a.stats.failed}
-⏭️ Dilewati: ${a.stats.skip}`;
-    await ctx.reply(text, { reply_markup: new InlineKeyboard().text('🔄 Refresh', 'STAT').text('Tutup', 'delete_this') });
+    const text = buildStatsText(ctx, a);
+    await ctx.reply(text, {
+      parse_mode: 'Markdown',
+      reply_markup: new InlineKeyboard()
+        .text('🔄 Refresh', 'STAT')
+        .text('Tutup', 'delete_this')
+    });
   });
 
   bot.callbackQuery('STAT', async (ctx) => {
     const a = getAcc(ctx.from.id);
     if (!a) return ctx.answerCallbackQuery('❌ Login dulu', { show_alert: true });
-    const uptime = a.stats.start ? Math.floor((Date.now() - a.stats.start) / 1000) : 0;
-    const fmt = s => s > 3600 ? `${Math.floor(s/3600)}j ${Math.floor(s%3600/60)}m`
-      : s > 60 ? `${Math.floor(s/60)}m ${s%60}s` : `${s}s`;
-    const text = `📊 Status
-🔄 Status: ${a.running ? 'Berjalan' : 'Berhenti'}
-🕒 Waktu Mulai: ${a.startTime || '-'}
-🕝 Waktu Stop: ${a.stopTime || '-'}
-⏱️ Uptime: ${a.stats.start ? fmt(uptime) : '-'}
-✅ Terkirim: ${a.stats.sent}
-❌ Gagal: ${a.stats.failed}
-⏭️ Dilewati: ${a.stats.skip}`;
+    const text = buildStatsText(ctx, a);
     try {
-      await ctx.editMessageText(text, { reply_markup: new InlineKeyboard().text('🔄 Refresh', 'STAT').text('Tutup', 'delete_this') });
+      await ctx.editMessageText(text, {
+        parse_mode: 'Markdown',
+        reply_markup: new InlineKeyboard()
+          .text('🔄 Refresh', 'STAT')
+          .text('Tutup', 'delete_this')
+      });
     } catch {}
     await ctx.answerCallbackQuery();
   });
 
   bot.callbackQuery('delete_this', async (ctx) => {
-    await ctx.deleteMessage();
+    try { await ctx.deleteMessage(); } catch {}
     await ctx.answerCallbackQuery();
   });
 };
