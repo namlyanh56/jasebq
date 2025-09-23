@@ -13,10 +13,10 @@ const inputHandler = require('./handler/input');
 const bot = new Bot(process.env.BOT_TOKEN);
 bot.use(session({ initial: () => ({}) }));
 
-// === GATE WAJIB JOIN (letakkan sebelum handler lain) ===
+// Gate membership
 bot.use(accessGate());
 
-// === Handler utama ===
+// Handler utama
 authHandler(bot);
 pesanHandler(bot);
 targetHandler(bot);
@@ -26,15 +26,13 @@ jasebHandler(bot);
 bot.command('start', startCommand);
 bot.hears('⬅️ Kembali', startCommand);
 
-// Callback re-check akses setelah user tekan "✅ Sudah Join"
+// Callback re-check akses
 bot.callbackQuery('recheck_access', async (ctx) => {
-  const ok = await checkMembership(ctx.api, ctx.from.id);
+  // Paksa cek ulang (abaikan cache)
+  const ok = await checkMembership(ctx.api, ctx.from.id, { force: true });
   if (ok) {
-    // Bersihkan cache agar fresh
     membershipCache.set(ctx.from.id, { ok: true, ts: Date.now() });
-    await ctx.answerCallbackQuery({ text: '✅ Verifikasi sukses!' });
-
-    // Tampilkan menu utama
+    await ctx.answerCallbackQuery({ text: '✅ Akses diverifikasi!', show_alert: false });
     const { mainMenu } = require('./utils/menu');
     const menu = mainMenu(ctx);
     try {
@@ -43,11 +41,11 @@ bot.callbackQuery('recheck_access', async (ctx) => {
       await ctx.reply(menu.text, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
     }
   } else {
-    await ctx.answerCallbackQuery({ text: '❌ Belum join semuanya.', show_alert: true });
+    await ctx.answerCallbackQuery({ text: '❌ Belum terdeteksi join keduanya.', show_alert: true });
   }
 });
 
-// Handler teks umum (setelah gating)
+// Handler teks umum
 bot.on('message:text', inputHandler);
 
 bot.catch(e => {
@@ -55,4 +53,4 @@ bot.catch(e => {
 });
 
 bot.start();
-console.log('Jaseb Dimulai (Dengan Gate Join)');
+console.log('Jaseb Dimulai (Gate Join)');
