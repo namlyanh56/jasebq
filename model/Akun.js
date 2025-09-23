@@ -194,9 +194,11 @@ class Akun {
             }
           );
           this.stats.sent++;
-        } catch (e) {
-          this.stats.failed++;
-          if (e.message?.includes('FLOOD_WAIT')) {
+          } catch (e) {
+  this.stats.failed++;
+  console.error('[FORWARD FAIL][AllGroups]', e.message);
+  if (e.message?.includes('FLOOD_WAIT')) { ... }
+}
             const wait = +(e.message.match(/\d+/)?.[0] || 60);
             botApi && botApi.sendMessage(this.uid, `⚠️ FLOOD_WAIT ${wait}s`);
             break;
@@ -254,8 +256,10 @@ class Akun {
         );
         this.stats.sent++;
       } catch (e) {
-        this.stats.failed++;
-        if (e.message?.includes('FLOOD_WAIT')) {
+  this.stats.failed++;
+  console.error('[FORWARD FAIL][BetweenGroups]', e.message);
+  if (e.message?.includes('FLOOD_WAIT')) { ... }
+}
           const wait = +(e.message.match(/\d+/)?.[0] || 60);
             botApi && botApi.sendMessage(this.uid, `⚠️ FLOOD_WAIT ${wait}s`);
         }
@@ -385,3 +389,4 @@ class Akun {
 }
 
 module.exports = Akun;
+
