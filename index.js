@@ -11,6 +11,9 @@ const inputHandler = require('./handler/input');
 const bot = new Bot(process.env.BOT_TOKEN);
 bot.use(session({ initial: () => ({}) }));
 
+const { BOT_ID } = require('./config/setting');
+console.log('BOT_ID ->', BOT_ID);
+
 authHandler(bot);
 pesanHandler(bot);
 targetHandler(bot);
@@ -27,3 +30,4 @@ bot.catch(e => {
 
 bot.start();
 console.log('Jaseb Dimulai');
+
