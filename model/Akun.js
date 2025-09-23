@@ -1,4 +1,4 @@
-const { TelegramClient } = require('telegram');
+const { TelegramClient, Api } = require('telegram'); // <-- Tambah Api di sini
 const { StringSession } = require('telegram/sessions');
 const { API_ID, API_HASH } = require('../config/setting');
 
@@ -10,9 +10,7 @@ class Akun {
     this.name = '';
     this.authed = false;
 
-    // this.msgs dapat berisi:
-    //  - legacy string (format lama)
-    //  - objek { chatId, messageId, preview }
+    // Pesan: legacy string atau objek {chatId,messageId,preview}
     this.msgs = [];
 
     this.targets = new Map();
@@ -23,8 +21,8 @@ class Akun {
 
     this.running = false;
     this.timer = null;
-    this.idx = 0;     // indeks target saat mode antar
-    this.msgIdx = 0;  // indeks pesan aktif
+    this.idx = 0;
+    this.msgIdx = 0;
 
     this.stats = { sent: 0, failed: 0, skip: 0, start: 0 };
 
@@ -32,9 +30,8 @@ class Akun {
     this.pendingPass = null;
     this.pendingMsgId = null;
 
-    // Mode jeda
-    this.delayMode = 'antar';   // 'antar' atau 'semua'
-    this.delayAllGroups = 20;   // menit (mode 'semua')
+    this.delayMode = 'antar';
+    this.delayAllGroups = 20; // menit
   }
 
   async init() {
@@ -143,13 +140,11 @@ class Akun {
     }
   }
 
-  // --- Migrasi lazy pesan lama (string) menjadi objek forwardable ---
   async ensureMsgObject(i) {
     const item = this.msgs[i];
     if (!item) return null;
     if (typeof item === 'string') {
       try {
-        // Kirim ke Saved Messages agar punya sumber untuk forward
         const sent = await this.client.sendMessage('me', { message: item });
         const sentId = Array.isArray(sent) ? sent[0].id : sent.id;
         this.msgs[i] = {
@@ -162,28 +157,23 @@ class Akun {
         return null;
       }
     }
-    return item; // sudah objek
+    return item;
   }
 
-  // Mode: satu pesan -> ke SEMUA grup setiap interval besar
   async broadcastAllGroups(botApi) {
     if (!this.running) return;
 
     const sendAllMessages = async () => {
       if (!this.running) return;
-
-      // Auto stop
       if (this.stopAfter > 0 && Date.now() - this.stats.start >= this.stopAfter * 60000) {
         this.stop();
         botApi && botApi.sendMessage(this.uid, '⏰ Auto stop');
         return;
       }
-
       if (!this.msgs.length || !this.targets.size) {
         this.stats.skip++;
         return;
       }
-
       if (this.msgIdx >= this.msgs.length) this.msgIdx = 0;
 
       const msgObj = await this.ensureMsgObject(this.msgIdx);
@@ -194,7 +184,6 @@ class Akun {
       }
 
       const targetList = Array.from(this.targets.values());
-
       for (const target of targetList) {
         try {
           await this.client.forwardMessages(
@@ -210,11 +199,10 @@ class Akun {
           if (e.message?.includes('FLOOD_WAIT')) {
             const wait = +(e.message.match(/\d+/)?.[0] || 60);
             botApi && botApi.sendMessage(this.uid, `⚠️ FLOOD_WAIT ${wait}s`);
-            break; // hentikan batch saat kena flood
+            break;
           }
         }
       }
-
       this.msgIdx++;
     };
 
@@ -231,27 +219,21 @@ class Akun {
     }
   }
 
-  // Mode: berurutan antar target dengan jeda detik (rotasi pesan)
   async broadcastBetweenGroups(botApi) {
     if (!this.running) return;
 
     const loop = async () => {
       if (!this.running) return;
-
-      // Auto stop
       if (this.stopAfter > 0 && Date.now() - this.stats.start >= this.stopAfter * 60000) {
         this.stop();
         botApi && botApi.sendMessage(this.uid, '⏰ Auto stop');
         return;
       }
-
       const targets = Array.from(this.targets.values());
       if (!targets.length || !this.msgs.length) {
         this.stats.skip++;
         return;
       }
-
-      // Jika semua target sudah dikirimi untuk pesan aktif
       if (this.idx >= targets.length) {
         this.idx = 0;
         this.msgIdx++;
@@ -260,10 +242,7 @@ class Akun {
 
       const target = targets[this.idx++];
       const msgObj = await this.ensureMsgObject(this.msgIdx);
-      if (!msgObj) {
-        this.stats.skip++;
-        return;
-      }
+      if (!msgObj) { this.stats.skip++; return; }
 
       try {
         await this.client.forwardMessages(
@@ -278,7 +257,7 @@ class Akun {
         this.stats.failed++;
         if (e.message?.includes('FLOOD_WAIT')) {
           const wait = +(e.message.match(/\d+/)?.[0] || 60);
-          botApi && botApi.sendMessage(this.uid, `⚠️ FLOOD_WAIT ${wait}s`);
+            botApi && botApi.sendMessage(this.uid, `⚠️ FLOOD_WAIT ${wait}s`);
         }
       }
     };
@@ -296,6 +275,7 @@ class Akun {
     }
   }
 
+  // === FUNGSI YANG DIPERBAIKI: dukung invite link ===
   async addTargets(text) {
     const inputs = text.split(/\s+/).filter(Boolean);
     let success = 0;
@@ -305,23 +285,65 @@ class Akun {
       try {
         let t = raw.trim();
 
+        // Normalisasi URL dasar
         if (t.startsWith('https://t.me/')) t = t.replace('https://t.me/', '');
+        else if (t.startsWith('http://t.me/')) t = t.replace('http://t.me/', '');
+
         if (t.startsWith('@')) t = t.slice(1);
 
-        // Username publik
+        // INVITE LINK: +HASH atau joinchat/HASH
+        if (t.startsWith('+') || t.startsWith('joinchat/')) {
+          let hash = t.startsWith('+') ? t.slice(1) : t.split('joinchat/')[1];
+          hash = hash.split(/[?\s]/)[0]; // buang query
+          let chatEntity = null;
+
+          try {
+            const info = await this.client.invoke(new Api.messages.CheckChatInvite({ hash }));
+            if (info.className === 'ChatInviteAlready') {
+              chatEntity = info.chat;
+            } else if (info.className === 'ChatInvite') {
+              // Import (join) baru
+              const upd = await this.client.invoke(new Api.messages.ImportChatInvite({ hash }));
+              chatEntity = upd.chats?.[0];
+            }
+          } catch (e) {
+            // Jika sudah participant tapi Check gagal, bisa abaikan atau fallback
+            if (/USER_ALREADY_PARTICIPANT/i.test(e.message)) {
+              // Fallback minim: biarkan gagal; user biasanya sudah dalam dialogs
+              // (Implementasi lanjutan bisa scan dialogs, tapi optional)
+            } else {
+              throw e;
+            }
+          }
+
+            if (chatEntity) {
+              const idStr = String(chatEntity.id);
+              this.targets.set(idStr, {
+                id: chatEntity.id,
+                title: chatEntity.title || idStr,
+                entity: chatEntity
+              });
+              success++;
+            } else {
+              this.targets.set(original, { id: original, title: `${original} (gagal ambil)`, entity: null });
+            }
+            continue;
+        }
+
+        // USERNAME PUBLIK
         if (/^[A-Za-z0-9_]{5,}$/.test(t)) {
           const ent = await this.client.getEntity(t);
           const idStr = String(ent.id);
-            this.targets.set(idStr, {
-              id: ent.id,
-              title: ent.title || ent.firstName || ent.username || idStr,
-              entity: ent
-            });
+          this.targets.set(idStr, {
+            id: ent.id,
+            title: ent.title || ent.firstName || ent.username || idStr,
+            entity: ent
+          });
           success++;
           continue;
         }
 
-        // Numeric ID
+        // ID NUMERIK
         if (/^-?\d+$/.test(t)) {
           const big = BigInt(t);
           const ent = await this.client.getEntity(big);
@@ -339,7 +361,7 @@ class Akun {
         this.targets.set(original, { id: original, title: `${original} (format tidak dikenali)`, entity: null });
 
       } catch (err) {
-        this.targets.set(raw, { id: raw, title: `${raw} (error: ${err.message})`, entity: null });
+        this.targets.set(original, { id: original, title: `${original} (error: ${err.message})`, entity: null });
       }
     }
 
