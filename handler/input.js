@@ -1,7 +1,5 @@
-// handler/input.js
 const { getUser, getAcc } = require('../utils/helper');
 const { mainMenu, allCommandNames, settingMenu } = require('../utils/menu');
-// const { BOT_ID } = require('../config/setting'); // Tidak wajib lagi untuk teks biasa
 
 module.exports = async (ctx) => {
   const text = ctx.message.text?.trim();
@@ -14,7 +12,7 @@ module.exports = async (ctx) => {
 
   if (!a && ctx.session?.act && ctx.session.act !== 'phone') {
     ctx.session = null;
-    return ctx.reply('❌ Aksi dibatalkan. Silakan login terlebih dahulu.');
+    return ctx.reply('❌ Aksi dibatalkan. Silakan login.');
   }
 
   if (ctx.session?.mid) {
@@ -38,42 +36,45 @@ module.exports = async (ctx) => {
       const m = ctx.message;
       try {
         if (m.forward_from_chat && m.forward_from_message_id) {
-          // Forward dari channel/grup
+          // Forward dari grup/channel
+          // Cek apakah tipe chat cocok (channel / supergroup)
+          // Kalau caption/teks ada, kita tetap simpan objek forward
+          let chatIdBot = m.forward_from_chat.id; // Bot API style (-100xxxx)
+          // Simpan dalam bentuk "raw", nanti di ensureMsgObject kita butuh chatId internal.
           a.msgs.push({
-            chatId: m.forward_from_chat.id,
+            chatId: chatIdBot,            // akan dikonversi saat forward
             messageId: m.forward_from_message_id,
-            preview: (m.text || m.caption || '').slice(0, 60)
+            preview: (m.text || m.caption || '').slice(0, 60),
+            forwarded: true               // flag
           });
-          await ctx.reply('✅ Disimpan (forward sumber asli).');
+          await ctx.reply('✅ Disimpan (forward asli). Pastikan userbot sudah join ke grup sumber.');
         } else if (m.text || m.caption) {
-          // Simpan teks full sebagai string (biar ensureMsgObject yang kirim ke Saved Messages)
           a.msgs.push(m.text || m.caption);
           await ctx.reply('✅ Disimpan (teks).');
         } else {
-          await ctx.reply('⚠️ Media non-forward belum didukung. Forward langsung dari channel/grup untuk disimpan.');
+          await ctx.reply('⚠️ Media non-forward belum didukung. Forward langsung dari sumber atau kirim teks.');
         }
       } catch (e) {
         await ctx.reply('❌ Gagal simpan: ' + (e.message || e));
       }
+
       const menu = mainMenu(ctx);
-      await ctx.reply(menu.text, { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode });
+      await ctx.reply(menu.text, {
+        reply_markup: menu.reply_markup,
+        parse_mode: menu.parse_mode
+      });
     },
 
     addtgt: async () => {
       try {
         const count = await a.addTargets(text);
         const menu = mainMenu(ctx);
-        if (count) {
-          await ctx.reply(`✅ ${count} target grup/channel valid ditambah`, {
-            reply_markup: menu.reply_markup,
-            parse_mode: menu.parse_mode
-          });
-        } else {
-          await ctx.reply('⚠️ Tidak ada target grup valid (user / gagal / salah format tetap dicatat).', {
-            reply_markup: menu.reply_markup,
-            parse_mode: menu.parse_mode
-          });
-        }
+        await ctx.reply(
+          count
+            ? `✅ ${count} target grup/channel valid ditambah`
+            : '⚠️ Tidak ada target grup/channel valid (user / gagal tetap dicatat).',
+          { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode }
+        );
       } catch (e) {
         await ctx.reply(`❌ Gagal menambah target: ${e.message}`);
       }
@@ -94,7 +95,7 @@ module.exports = async (ctx) => {
         a.delayAllGroups = v;
         a.delayMode = 'semua';
         await ctx.reply(
-          `✅ Jeda Per Semua Grup: ${v}m${v < 20 ? '\n⚠️ Disarankan ≥ 20m untuk hindari limit.' : ''}`,
+          `✅ Jeda Semua Grup: ${v}m${v < 20 ? '\n⚠️ Disarankan >= 20m untuk hindari limit.' : ''}`,
           { reply_markup: settingMenu(a), parse_mode: 'Markdown' }
         );
       } else ctx.reply('❌ Masukkan angka 1-1440.');
