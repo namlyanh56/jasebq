@@ -1,20 +1,20 @@
 const { getUser, getAcc } = require('../utils/helper');
 const { mainMenu, allCommandNames, settingMenu } = require('../utils/menu');
 
+const TIME_REGEX = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+
 module.exports = async (ctx) => {
   const text = ctx.message.text?.trim();
-
   if (allCommandNames && allCommandNames.has(text)) return;
 
   const u = getUser(ctx.from.id);
   const a = getAcc(ctx.from.id);
-
   const targetAcc = u.accounts.get(ctx.session?.id) || a;
   if (targetAcc?.handleText(text, ctx)) return;
 
   if (!a && ctx.session?.act && ctx.session.act !== 'phone') {
     ctx.session = null;
-    return ctx.reply('❌ Aksi dibatalkan. Silakan login terlebih dahulu.');
+    return ctx.reply('❌ Aksi dibatalkan. Login dulu.');
   }
 
   if (ctx.session?.mid) {
@@ -38,16 +38,15 @@ module.exports = async (ctx) => {
       const m = ctx.message;
       try {
         if (m.forward_from_chat && m.forward_from_message_id) {
-          // Simpan hanya data minimal untuk forward
-            a.msgs.push({
-              src: m.forward_from_chat.id,           // bot api chat id sumber
-              mid: m.forward_from_message_id,        // message id sumber
-              text: (m.text || m.caption || '').slice(0, 200)
-            });
-          await ctx.reply('✅ Disimpan (mode forward).');
+          a.msgs.push({
+            src: m.forward_from_chat.id,
+            mid: m.forward_from_message_id,
+            text: (m.text || m.caption || '').slice(0, 200)
+          });
+          await ctx.reply('✅ Disimpan (forward).');
         } else if (m.text || m.caption) {
-          a.msgs.push((m.text || m.caption));
-          await ctx.reply('✅ Disimpan (teks, akan di-copy).');
+          a.msgs.push(m.text || m.caption);
+          await ctx.reply('✅ Disimpan (teks).');
         } else {
           a.msgs.push('[Unsupported media]');
           await ctx.reply('⚠️ Media belum didukung, disimpan sebagai teks placeholder.');
@@ -70,7 +69,7 @@ module.exports = async (ctx) => {
         await ctx.reply(
           count
             ? `✅ ${count} target valid ditambah`
-            : '⚠️ Tidak ada target valid (yang gagal tetap dicatat).',
+            : '⚠️ Tidak ada target valid.',
           { reply_markup: menu.reply_markup, parse_mode: menu.parse_mode }
         );
       } catch (e) {
@@ -94,33 +93,39 @@ module.exports = async (ctx) => {
       if (v >= 1 && v <= 1440) {
         a.delayAllGroups = v;
         a.delayMode = 'semua';
-        await ctx.reply(
-          `✅ Jeda Semua Grup: ${v}m${v < 20 ? '\n⚠️ Disarankan ≥ 20m.' : ''}`,
-          { reply_markup: settingMenu(a), parse_mode: 'Markdown' }
-        );
+        await ctx.reply(`✅ Jeda Semua Grup: ${v}m`, { reply_markup: settingMenu(a) });
       } else {
         await ctx.reply('❌ Masukkan angka 1-1440.');
       }
     },
 
+    // Waktu Mulai
     setstart: async () => {
-      const v = +text;
-      if (v >= 0 && v <= 1440) {
-        a.startAfter = v;
-        await ctx.reply(`✅ Tunda mulai: ${v}m`, { reply_markup: settingMenu(a) });
-      } else {
-        await ctx.reply('❌ Masukkan angka 0-1440.');
+      if (text === '-' || text.toLowerCase() === 'x') {
+        a.startTime = null;
+        await ctx.reply('✅ Waktu Mulai dihapus.', { reply_markup: settingMenu(a) });
+        return;
       }
+      if (!TIME_REGEX.test(text)) {
+        return ctx.reply('❌ Format salah. Gunakan HH:MM (24 jam), contoh 08:30 atau 23:05. Atau kirim "-" untuk hapus.');
+      }
+      a.startTime = text;
+      await ctx.reply(`✅ Waktu Mulai di-set: ${text}`, { reply_markup: settingMenu(a) });
     },
 
+    // Waktu Stop
     setstop: async () => {
-      const v = +text;
-      if (v >= 0 && v <= 1440) {
-        a.stopAfter = v;
-        await ctx.reply(`✅ Stop otomatis: ${v}m`, { reply_markup: settingMenu(a) });
-      } else {
-        await ctx.reply('❌ Masukkan angka 0-1440.');
+      if (text === '-' || text.toLowerCase() === 'x') {
+        a.stopTime = null;
+        a.stopTimestamp = null;
+        await ctx.reply('✅ Waktu Stop dihapus.', { reply_markup: settingMenu(a) });
+        return;
       }
+      if (!TIME_REGEX.test(text)) {
+        return ctx.reply('❌ Format salah. Gunakan HH:MM (24 jam), contoh 22:15. Atau kirim "-" untuk hapus.');
+      }
+      a.stopTime = text;
+      await ctx.reply(`✅ Waktu Stop di-set: ${text}`, { reply_markup: settingMenu(a) });
     }
   };
 
