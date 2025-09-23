@@ -29,7 +29,7 @@ class Akun {
     // Waktu Mulai & Stop (fitur baru, HH:MM atau null)
     this.startTime = null;      // string 'HH:MM' atau null
     this.stopTime = null;       // string 'HH:MM' atau null
-    this.stopTimestamp = null;  // number (ms) ketika harus stop
+    this.stopTimestamp = null;  // number (ms)
     this._startTimer = null;
     this._stopTimer = null;
 
@@ -48,6 +48,9 @@ class Akun {
 
     // Cache sumber forward
     this._sourceCache = new Map();
+
+    // Loading message (ephemeral)
+    this.loadingMsgId = null; // ADD
   }
 
   async init() {
@@ -59,14 +62,32 @@ class Akun {
     );
   }
 
+  async _safeDeleteLoading(ctx) {
+    if (this.loadingMsgId) {
+      try { await ctx.api.deleteMessage(this.uid, this.loadingMsgId); } catch {}
+      this.loadingMsgId = null;
+    }
+  }
+
   async login(ctx, phone) {
+    // Tampilkan pesan loading
+    try {
+      const loading = await ctx.reply('⏳ *Tunggu sebentar...*', { parse_mode: 'Markdown' });
+      this.loadingMsgId = loading.message_id;
+    } catch {}
+
     await this.init();
-    if (!this.client) return ctx.reply('❌ Gagal init client.');
+    if (!this.client) {
+      await this._safeDeleteLoading(ctx);
+      return ctx.reply('❌ Gagal init client.');
+    }
     try {
       await this.client.start({
         phoneNumber: () => phone,
         phoneCode: () => new Promise(r => {
           this.pendingCode = r;
+          // Hapus loading sebelum prompt OTP
+          this._safeDeleteLoading(ctx);
           const { InlineKeyboard } = require('grammy');
           ctx.reply('Kirim OTP:', {
             reply_markup: new InlineKeyboard().text('❌ Batal', `cancel_${this.uid}`)
@@ -74,6 +95,8 @@ class Akun {
         }),
         password: () => new Promise(r => {
           this.pendingPass = r;
+          // Hapus loading sebelum prompt password
+          this._safeDeleteLoading(ctx);
           const { InlineKeyboard } = require('grammy');
           ctx.reply('Password 2FA:', {
             reply_markup: new InlineKeyboard().text('❌ Batal', `cancel_${this.uid}`)
@@ -88,6 +111,8 @@ class Akun {
       this.name = me?.firstName || me?.username || 'User';
       this.cleanup(ctx);
 
+      await this._safeDeleteLoading(ctx);
+
       const { mainMenu } = require('../utils/menu');
       const menu = mainMenu(ctx);
       ctx.reply(`✅ Login berhasil!\n\n${menu.text}`, {
@@ -97,6 +122,7 @@ class Akun {
 
     } catch (e) {
       this.cleanup(ctx);
+      await this._safeDeleteLoading(ctx);
       ctx.reply(`❌ Login gagal: ${e.message}`);
     }
   }
@@ -130,40 +156,21 @@ class Akun {
     this.cleanup(ctx);
   }
 
-  // ===== Util waktu =====
   _timeToTimestamp(hhmm) {
     if (!/^([01]?\d|2[0-3]):([0-5]\d)$/.test(hhmm)) return null;
     const [h, m] = hhmm.split(':').map(n => parseInt(n, 10));
     const now = new Date();
-    const ts = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      h,
-      m,
-      0,
-      0
-    ).getTime();
-    return ts;
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0).getTime();
   }
 
   _clearTimers() {
-    if (this._startTimer) {
-      clearTimeout(this._startTimer);
-      this._startTimer = null;
-    }
-    if (this._stopTimer) {
-      clearTimeout(this._stopTimer);
-      this._stopTimer = null;
-    }
+    if (this._startTimer) { clearTimeout(this._startTimer); this._startTimer = null; }
+    if (this._stopTimer) { clearTimeout(this._stopTimer); this._stopTimer = null; }
   }
 
-  // ===== Start public =====
   start(botApi) {
-    // Jika sudah berjalan
     if (this.running || this._startTimer) return;
 
-    // Validasi keberadaan pesan & target
     if (!this.msgs.length) {
       botApi && botApi.sendMessage(this.uid, '❌ Tidak ada pesan.');
       return;
@@ -173,25 +180,22 @@ class Akun {
       return;
     }
 
-    // Jika punya startTime & masih di depan
     if (this.startTime) {
       const ts = this._timeToTimestamp(this.startTime);
       if (ts && ts > Date.now() + 1500) {
         const waitMs = ts - Date.now();
-        botApi && botApi.sendMessage(this.uid, `⏳ Akan mulai pada ${this.startTime} (dalam ${(waitMs/60000).toFixed(1)} m)`);
+        botApi && botApi.sendMessage(this.uid, `⏳ Akan mulai pada ${this.startTime} (dalam ${(waitMs / 60000).toFixed(1)} m)`);
         this._startTimer = setTimeout(() => {
           this._startTimer = null;
           this._doStart(botApi);
         }, waitMs);
         return;
       }
-      // Jika sudah lewat → langsung mulai
     }
 
     this._doStart(botApi);
   }
 
-  // Internal start
   _doStart(botApi) {
     if (this.running) return;
     this.running = true;
@@ -200,7 +204,6 @@ class Akun {
     this.msgIdx = 0;
     this.stopTimestamp = null;
 
-    // Jadwalkan stopTime kalau valid & di depan
     if (this.stopTime) {
       const st = this._timeToTimestamp(this.stopTime);
       if (st && st > Date.now()) {
@@ -215,7 +218,6 @@ class Akun {
       }
     }
 
-    // Mulai mode yang dipilih
     if (this.delayMode === 'semua') this._broadcastAllGroups(botApi);
     else this._broadcastBetweenGroups(botApi);
   }
@@ -229,13 +231,12 @@ class Akun {
     }
   }
 
-  // ===== ID / Forward util =====
   botToInternal(botId) {
     try {
       const n = BigInt(botId);
       if (n >= 0n) return n;
       const abs = -n;
-      if (String(abs).startsWith('100')) return abs - 1000000000000n; // -100xxxxxxxxxx
+      if (String(abs).startsWith('100')) return abs - 1000000000000n;
       return abs;
     } catch {
       return null;
@@ -291,7 +292,6 @@ class Akun {
       }
       return;
     }
-    // Legacy object tanpa struktur jelas
     try {
       const txt = msg?.preview || '[Pesan]';
       await this.client.sendMessage(targetEntity, { message: txt });
@@ -302,7 +302,6 @@ class Akun {
     }
   }
 
-  // ===== Broadcasting =====
   async _tickStopCheck(botApi) {
     if (this.stopTimestamp && Date.now() >= this.stopTimestamp) {
       this.stop();
@@ -373,7 +372,7 @@ class Akun {
           target.entity = ent;
         } catch (e) {
           this.stats.failed++;
-            console.error('[BETWEEN] TARGET_RESOLVE_FAIL', target.id, e.message);
+          console.error('[BETWEEN] TARGET_RESOLVE_FAIL', target.id, e.message);
           return;
         }
       }
@@ -391,7 +390,6 @@ class Akun {
     run();
   }
 
-  // ===== Target Management =====
   async addTargets(text) {
     const inputs = text.split(/\s+/).filter(Boolean);
     let success = 0;
