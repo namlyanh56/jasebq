@@ -1,19 +1,14 @@
 // handler/input.js
 const { getUser, getAcc } = require('../utils/helper');
 const { mainMenu, allCommandNames, settingMenu } = require('../utils/menu');
-const { BOT_ID } = require('../config/setting');  // <-- DITAMBAHKAN
+const { BOT_ID } = require('../config/setting'); // masih boleh, walau tidak dipakai lagi di addmsg baru
 
 module.exports = async (ctx) => {
   const text = ctx.message.text?.trim();
-
-  // Hindari bentrok dengan command lain yang ditangani di tempat lain
-  if (allCommandNames && allCommandNames.has(text)) {
-    return;
-  }
+  if (allCommandNames && allCommandNames.has(text)) return;
 
   const u = getUser(ctx.from.id);
   const a = getAcc(ctx.from.id);
-
   const targetAcc = u.accounts.get(ctx.session?.id) || a;
   if (targetAcc?.handleText(text, ctx)) return;
 
@@ -29,7 +24,7 @@ module.exports = async (ctx) => {
   const actions = {
     phone: async () => {
       if (!/^\+\d{10,15}$/.test(text)) {
-        return await ctx.reply('❌ Format salah. Contoh: +6281234567890');
+        return ctx.reply('❌ Format salah. Contoh: +6281234567890');
       }
       const acc = u.accounts.get(ctx.session.id);
       if (acc) {
@@ -39,35 +34,25 @@ module.exports = async (ctx) => {
     },
 
     addmsg: async () => {
-      const m = ctx.message;
       if (!a) return;
+      const m = ctx.message;
 
       try {
         if (m.forward_from_chat && m.forward_from_message_id) {
-          // Pesan forward dari channel/grup
-            a.msgs.push({
-              chatId: m.forward_from_chat.id,
-              messageId: m.forward_from_message_id,
-              preview: (m.text || m.caption || '').slice(0, 60)
-            });
-          await ctx.reply('✅ Disimpan (forward sumber asli).');
-        } else {
-          // Pesan biasa (teks atau media) – sumber adalah chat user dengan bot → forward lewat BOT_ID
-          const pv =
-            (m.text || m.caption) ? (m.text || m.caption).slice(0, 60)
-              : m.photo ? '[Foto]'
-              : m.video ? '[Video]'
-              : m.document ? `[File:${m.document.file_name || 'dok'}]`
-              : m.sticker ? '[Sticker]'
-              : m.voice ? '[Voice]'
-              : '[Pesan]';
-
+          // Forward dari channel/grup (userbot harus punya akses ke sumber)
           a.msgs.push({
-            chatId: BOT_ID,
-            messageId: m.message_id,
-            preview: pv
+            chatId: m.forward_from_chat.id,
+            messageId: m.forward_from_message_id,
+            preview: (m.text || m.caption || '').slice(0, 60)
           });
-          await ctx.reply('✅ Disimpan (chat dengan bot).');
+          await ctx.reply('✅ Disimpan (forward sumber asli).');
+        } else if (m.text || m.caption) {
+          // Simpan sebagai string FULL (tidak dipotong) → nanti dikirim ke Saved Messages oleh ensureMsgObject
+          a.msgs.push(m.text || m.caption);
+          await ctx.reply('✅ Disimpan (teks/caption).');
+        } else {
+          // Media non-forward (foto/video/dokumen) sementara tidak di-handle
+            await ctx.reply('⚠️ Media non-teks yang bukan forward belum bisa disimpan.\nSilakan FORWARD langsung dari channel/grup sumber agar bisa di-broadcast, atau kirim teks saja.');
         }
       } catch (e) {
         await ctx.reply('❌ Gagal simpan: ' + (e.message || e));
@@ -96,11 +81,9 @@ module.exports = async (ctx) => {
       if (delay >= 1 && delay <= 3600) {
         a.delay = delay;
         a.delayMode = 'antar';
-        await ctx.reply(`✅ Jeda Antar Grup berhasil diubah menjadi: ${delay} detik`, {
-          reply_markup: settingMenu(a)
-        });
+        await ctx.reply(`✅ Jeda Antar Grup diubah: ${delay} detik`, { reply_markup: settingMenu(a) });
       } else {
-        await ctx.reply(`❌ Nilai tidak valid. Masukkan angka antara 1-3600.`);
+        await ctx.reply('❌ Masukkan angka 1-3600.');
       }
     },
 
@@ -110,11 +93,11 @@ module.exports = async (ctx) => {
         a.delayAllGroups = minutes;
         a.delayMode = 'semua';
         await ctx.reply(
-          `✅ Jeda Per Semua Grup berhasil diubah menjadi: ${minutes} menit${minutes < 20 ? '\n\n⚠️ *PERINGATAN*: Nilai jeda terlalu rendah. Disarankan minimal 20 menit untuk menghindari limit.' : ''}`,
+          `✅ Jeda Per Semua Grup diubah: ${minutes} menit${minutes < 20 ? '\n⚠️ Disarankan ≥ 20 menit untuk hindari limit.' : ''}`,
           { reply_markup: settingMenu(a), parse_mode: 'Markdown' }
         );
       } else {
-        await ctx.reply(`❌ Nilai tidak valid. Masukkan angka antara 1-1440.`);
+        await ctx.reply('❌ Masukkan angka 1-1440.');
       }
     },
 
@@ -122,11 +105,9 @@ module.exports = async (ctx) => {
       const minutes = +text;
       if (minutes >= 0 && minutes <= 1440) {
         a.startAfter = minutes;
-        await ctx.reply(`✅ Tunda mulai berhasil diubah menjadi: ${minutes} menit`, {
-          reply_markup: settingMenu(a)
-        });
+        await ctx.reply(`✅ Tunda mulai: ${minutes} menit`, { reply_markup: settingMenu(a) });
       } else {
-        await ctx.reply(`❌ Nilai tidak valid. Masukkan angka antara 0-1440.`);
+        await ctx.reply('❌ Masukkan angka 0-1440.');
       }
     },
 
@@ -134,11 +115,9 @@ module.exports = async (ctx) => {
       const minutes = +text;
       if (minutes >= 0 && minutes <= 1440) {
         a.stopAfter = minutes;
-        await ctx.reply(`✅ Stop otomatis berhasil diubah menjadi: ${minutes} menit`, {
-          reply_markup: settingMenu(a)
-        });
+        await ctx.reply(`✅ Stop otomatis: ${minutes} menit`, { reply_markup: settingMenu(a) });
       } else {
-        await ctx.reply(`❌ Nilai tidak valid. Masukkan angka antara 0-1440.`);
+        await ctx.reply('❌ Masukkan angka 0-1440.');
       }
     }
   };
