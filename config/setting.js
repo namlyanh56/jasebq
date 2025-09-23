@@ -21,7 +21,7 @@ module.exports = {
   API_ID: parseInt(process.env.API_ID),
   API_HASH: process.env.API_HASH,
   sessionsDir,
-  BOT_ID 8262515261
+  BOT_ID: 8262515261
 
 module.exports = {
   BOT_TOKEN: process.env.BOT_TOKEN,
@@ -30,3 +30,4 @@ module.exports = {
   sessionsDir
 
 }
+
