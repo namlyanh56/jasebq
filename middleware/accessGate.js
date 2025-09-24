@@ -1,13 +1,18 @@
 const { InlineKeyboard } = require('grammy');
 
-// Pastikan benar ejaannya
-const REQUIRED_CHATS = ['@PanoramaaStoree', '@CentralPanorama']; 
-// Jika salah satu ternyata bukan ini, segera perbaiki.
-// Jika channel privat, gunakan ID numerik (misal: -1001234567890)
+// Pastikan ejaan benar
+const REQUIRED_CHATS = ['@PanoramaaStoree', '@CentralPanorama'];
 
+// Cache hasil cek
 const membershipCache = new Map();
-const CACHE_TTL = 5 * 60 * 1000;
-const ALLOW_IF_ADMIN_REQUIRED = false; // set true jika bot bukan admin channel publik
+// Perketat deteksi: TTL kecil agar cepat terbaca saat user berinteraksi lagi
+const CACHE_TTL = 60 * 1000; // 60 detik
+
+// Longgar jika bot bukan admin channel (biarkan false untuk mode ketat)
+const ALLOW_IF_ADMIN_REQUIRED = false;
+
+// Daftar user yang pernah lolos (untuk re-check berkala)
+const knownUsers = new Set();
 
 function buildGateKeyboard() {
   return new InlineKeyboard()
@@ -48,10 +53,11 @@ async function checkMembership(api, userId, { force = false, collect = false } =
   }
 
   membershipCache.set(userId, { ok, ts: now, details });
+  if (ok) knownUsers.add(userId);
   return collect ? { ok, details } : ok;
 }
 
-const GATE_MESSAGE = `🔐 *Akses Dibatasi*
+const GATE_MESSAGE = `🔐 *Akses Dibatasi* 🔐
 
 Untuk menggunakan bot ini, silakan *JOIN* dulu:
 1. @PanoramaaStoree
@@ -77,20 +83,19 @@ function accessGate() {
     const isHelp = text === '💡 Bantuan';
     const isRecheck = data === 'recheck_access';
 
-    // Jika callback recheck: hapus cache & teruskan ke handler callback
+    // Jika callback recheck: hapus cache & teruskan agar handler khusus memaksa cek ulang
     if (isRecheck) {
       membershipCache.delete(userId);
       return next();
     }
 
-    // Cek membership
     const hasAccess = await checkMembership(ctx.api, userId);
-
     if (hasAccess) {
+      knownUsers.add(userId);
       return next();
     }
 
-    // Belum punya akses
+    // Belum punya akses -> kirim ajakan join
     const kb = buildGateKeyboard();
 
     if (isCallback) {
@@ -123,5 +128,8 @@ module.exports = {
   checkMembership,
   debugMembership,
   REQUIRED_CHATS,
-  membershipCache
+  membershipCache,
+  knownUsers,
+  buildGateKeyboard,
+  GATE_MESSAGE
 };
