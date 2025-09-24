@@ -5,7 +5,10 @@ const { startCommand } = require('./utils/menu');
 const {
   accessGate,
   checkMembership,
-  membershipCache
+  membershipCache,
+  knownUsers,
+  buildGateKeyboard,
+  GATE_MESSAGE
 } = require('./middleware/accessGate');
 
 const authHandler = require('./handler/auth');
@@ -19,7 +22,7 @@ const bot = new Bot(process.env.BOT_TOKEN);
 // Session
 bot.use(session({ initial: () => ({}) }));
 
-// GATE WAJIB JOIN (HARUS sebelum handler lain)
+// Gate wajib join
 bot.use(accessGate());
 
 // Handler utama
@@ -32,24 +35,21 @@ jasebHandler(bot);
 bot.command('start', startCommand);
 bot.hears('⬅️ Kembali', startCommand);
 
-/**
- * Callback verifikasi ulang akses membership
- * - Pakai force=true agar tidak pakai cache lama
- * - collect=true (kalau kamu ingin cek detail channel, tinggal modif handler ini)
- */
+// Callback verifikasi ulang (force re-check)
 bot.callbackQuery('recheck_access', async (ctx) => {
   try {
     const result = await checkMembership(ctx.api, ctx.from.id, { force: true, collect: true });
-    const ok = result.ok ?? result; // fallback kalau fungsi hanya return boolean
+    const ok = result.ok ?? result;
     if (ok) {
       membershipCache.set(ctx.from.id, { ok: true, ts: Date.now(), details: result.details || [] });
+      knownUsers.add(ctx.from.id);
       await ctx.answerCallbackQuery({ text: '✅ Akses diverifikasi!' });
       const { mainMenu } = require('./utils/menu');
       const menu = mainMenu(ctx);
       try {
         await ctx.editMessageText(menu.text, {
           reply_markup: menu.reply_markup,
-            parse_mode: menu.parse_mode
+          parse_mode: menu.parse_mode
         });
       } catch {
         await ctx.reply(menu.text, {
@@ -58,19 +58,12 @@ bot.callbackQuery('recheck_access', async (ctx) => {
         });
       }
     } else {
-      // Susun detail (jika collect=true di middleware)
-      let detailLines = '';
-      if (result.details) {
-        detailLines = result.details
-          .map(d => `• ${d.chat} → ${d.status}${d.error ? ` (err: ${d.error})` : ''}`)
-          .join('\n');
-      }
       await ctx.answerCallbackQuery({ text: '❌ Belum terverifikasi.', show_alert: true });
-      if (detailLines) {
-        await ctx.reply(
-          `Masih belum terdeteksi join keduanya.\nStatus:\n${detailLines}\n\nPastikan:\n1. Bot admin penuh di kedua channel\n2. Username channel benar\n3. Kamu sudah join pakai akun ini\n4. Coba lagi dalam 10 detik`,
-          { parse_mode: 'Markdown' }
-        );
+      // Tampilkan kembali gate
+      try {
+        await ctx.editMessageText(GATE_MESSAGE, { parse_mode: 'Markdown', reply_markup: buildGateKeyboard() });
+      } catch {
+        await ctx.reply(GATE_MESSAGE, { parse_mode: 'Markdown', reply_markup: buildGateKeyboard() });
       }
     }
   } catch (e) {
@@ -79,13 +72,41 @@ bot.callbackQuery('recheck_access', async (ctx) => {
   }
 });
 
-// Handler teks umum (setelah semua gating & specific handlers)
+// Handler teks umum
 bot.on('message:text', inputHandler);
 
-// Global error handler
+// Re-check berkala: jika user keluar setelah lolos, kirim ajakan join lagi
+const lastNotify = new Map(); // userId -> ts terakhir notifikasi
+const NOTIFY_COOLDOWN = 5 * 60 * 1000; // 5 menit agar tidak spam
+
+setInterval(async () => {
+  for (const uid of knownUsers) {
+    try {
+      const ok = await checkMembership(bot.api, uid, { force: true });
+      if (!ok) {
+        const now = Date.now();
+        const last = lastNotify.get(uid) || 0;
+        if (now - last >= NOTIFY_COOLDOWN) {
+          lastNotify.set(uid, now);
+          // update cache false
+          membershipCache.set(uid, { ok: false, ts: now, details: [] });
+          // kirim gate
+          await bot.api.sendMessage(uid, GATE_MESSAGE, {
+            parse_mode: 'Markdown',
+            reply_markup: buildGateKeyboard()
+          });
+        }
+      }
+    } catch (e) {
+      // Abaikan error per user agar loop tetap jalan
+      // console.error('[periodic_recheck] uid', uid, e.message);
+    }
+  }
+}, 60 * 1000); // cek tiap 60 detik
+
 bot.catch(e => {
   console.error('ERROR UTAMA:', e);
 });
 
 bot.start();
-console.log('Jaseb Dimulai (Dengan Gate Join)');
+console.log('Jaseb Dimulai (Gate Join + Recheck Berkala)');
