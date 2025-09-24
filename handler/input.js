@@ -3,42 +3,6 @@ const { mainMenu, allCommandNames, settingMenu } = require('../utils/menu');
 
 const TIME_REGEX = /^([01]?\d|2[0-3]):([0-5]\d)$/;
 
-// Pola link undangan / target potensial
-const INVITE_LINK_REGEX = /^(?:https?:\/\/)?t\.me\/(?:\+|joinchat\/)[A-Za-z0-9_\-]+$/i;
-const PUBLIC_LINK_REGEX  = /^(?:https?:\/\/)?t\.me\/[A-Za-z0-9_]{5,}$/;  // kadang user paste ini juga
-const USERNAME_TOKEN_REGEX = /^@[A-Za-z0-9_]{5,}$/;
-const NUMERIC_ID_REGEX = /^-?\d+$/;
-
-/**
- * Deteksi apakah satu token terlihat seperti target (invite link / username / id).
- */
-function isTargetToken(tok) {
-  return INVITE_LINK_REGEX.test(tok)
-      || PUBLIC_LINK_REGEX.test(tok)
-      || USERNAME_TOKEN_REGEX.test(tok)
-      || NUMERIC_ID_REGEX.test(tok);
-}
-
-/**
- * Menentukan apakah satu teks (bisa multi-line) kemungkinan besar adalah kumpulan target,
- * bukan pesan broadcast biasa.
- * Kriteria:
- *  - Ada minimal 1 token target
- *  - Rasio token target >= 0.6 (60%) ATAU jumlah token target >= 2 dan total kata <= 6
- */
-function isLikelyTargetBatch(text) {
-  const tokens = text.split(/[\s\n]+/).filter(Boolean);
-  if (!tokens.length) return false;
-  let targetCount = 0;
-  for (const t of tokens) {
-    if (isTargetToken(t.trim())) targetCount++;
-  }
-  if (!targetCount) return false;
-
-  const ratio = targetCount / tokens.length;
-  return (ratio >= 0.6) || (targetCount >= 2 && tokens.length <= 6);
-}
-
 module.exports = async (ctx) => {
   const text = ctx.message.text?.trim();
   if (allCommandNames && allCommandNames.has(text)) return;
@@ -69,24 +33,15 @@ module.exports = async (ctx) => {
       }
     },
 
+    // Perubahan inti: hapus blok yang menolak link/username.
+    // Sekarang semua teks (termasuk link/username) disimpan sebagai pesan.
     addmsg: async () => {
       if (!a) return;
       const m = ctx.message;
       try {
-        // Ambil representasi teks (untuk kasus forward + caption / text)
         const raw = (m.text || m.caption || '').trim();
 
-        // Deteksi batch target terselip ke menu "Tambah Pesan"
-        if (raw && isLikelyTargetBatch(raw)) {
-          // Kalau mau otomatis menambah ke target, aktifkan blok berikut:
-          // const added = await a.addTargets(raw);
-          // return ctx.reply(`⚠️ Terdeteksi daftar target, bukan pesan. ${added} target ditambahkan. Gunakan *Kelola Target* untuk melihat.`, { parse_mode: 'Markdown' });
-
-          return ctx.reply('⚠️ Terdeteksi itu daftar link/username target, tidak disimpan sebagai pesan.\nGunakan menu "➕ Tambah Target" untuk memasukkannya.');
-        }
-
         if (m.forward_from_chat && m.forward_from_message_id) {
-          // Forward dari sumber (channel/grup)
           a.msgs.push({
             src: m.forward_from_chat.id,
             mid: m.forward_from_message_id,
@@ -181,4 +136,3 @@ module.exports = async (ctx) => {
     ctx.session = null;
   }
 };
-
